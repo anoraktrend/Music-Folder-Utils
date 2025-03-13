@@ -12,7 +12,7 @@ Extracts album art from music files (MP3, FLAC, M4A) and saves it as `folder.jpg
 
 Usage:
 ```bash
-./extart.bash /path/to/music/directory
+bash extart.bash /path/to/music/directory
 ```
 
 ### dir.bash
@@ -22,7 +22,7 @@ Creates `.directory` files in each subdirectory to set folder icons. This script
 
 Usage:
 ```bash
-./dir.bash /path/to/music/directory
+bash dir.bash /path/to/music/directory
 ```
 
 ### seticon.bash
@@ -32,8 +32,9 @@ Sets custom folder icons using GIO (GNOME/GTK file managers). This script:
 - Works with GNOME-based file managers
 
 Usage:
+edit the script to set the path to your music directory
 ```bash
-./seticon.bash /path/to/music/directory
+bash seticon.bash
 ```
 
 ## Requirements
