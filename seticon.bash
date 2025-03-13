@@ -41,9 +41,14 @@ process_directories() {
     done
 }
 
-# Example usage
-# Replace this path with the root folder you want to start with
-ROOT_FOLDER="/home/lucy/media/music"
+# Check for command line argument
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <music_folder_path>"
+    echo "Sets folder.jpg as custom icon for all music folders recursively"
+    exit 1
+fi
+
+ROOT_FOLDER="$1"
 
 if [[ ! -d "$ROOT_FOLDER" ]]; then
     echo "Error: Root folder '$ROOT_FOLDER' does not exist."

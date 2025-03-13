@@ -36,9 +36,8 @@ Sets custom folder icons using GIO (GNOME/GTK file managers). This script:
 - Works with GNOME-based file managers
 
 Usage:
-edit the script to set the path to your music directory
 ```bash
-bash seticon.bash
+bash seticon.bash /path/to/music/directory
 ```
 
 ## Requirements
