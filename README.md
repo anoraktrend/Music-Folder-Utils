@@ -2,6 +2,11 @@
 
 A collection of bash scripts for managing music folder icons and album art in Linux.
 
+![Nautilus with Album Art Icons](media/Screenshot_Nautilus.png)
+![Dolphin with Album Art Icons](media/Screenshot_Dolphin.png)
+
+Easily set album art as folder icons in your music collection. Works with both GNOME and KDE file managers.
+
 ## Scripts
 
 ### extart.bash
