@@ -17,7 +17,4 @@ pub fn process_single_track_symlink(track_path: &Path, music_dir: &str) -> Resul
     }
     Ok(())}
 
-pub fn create_track_symlinks(_music_dir: &str) -> Result<()> {
-    // This function is now handled by run_tui and process_single_track_symlink
-    Ok(())
-}
+

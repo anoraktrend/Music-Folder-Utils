@@ -15,7 +15,6 @@ const AUDIODB_API_KEY: &str = "123"; // Placeholder
 #[derive(Deserialize, Debug)]
 struct PexelsPhotoSrc {
     large: String,
-    medium: String,
 }
 
 #[derive(Deserialize, Debug)]

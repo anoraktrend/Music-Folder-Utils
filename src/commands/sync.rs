@@ -51,7 +51,4 @@ pub async fn process_single_album_sync_tags(album_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub async fn sync_tags(_music_dir: &str) -> Result<()> {
-    // This function is now handled by run_tui and process_single_album_sync_tags
-    Ok(())
-}
+
