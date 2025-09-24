@@ -216,7 +216,7 @@ pub async fn process_single_album_sync_tags(
 
     // Pre-fetch all MusicBrainz release IDs for album groups
     for (artist, album) in album_groups.keys() {
-        if !release_cache.contains_key(&(artist.clone(), album.clone())) {
+        if let std::collections::hash_map::Entry::Vacant(e) = release_cache.entry((artist.clone(), album.clone())) {
             let query = musicbrainz_rs::entity::release::ReleaseSearchQuery::query_builder()
                 .release(album)
                 .and()
@@ -226,7 +226,7 @@ pub async fn process_single_album_sync_tags(
             match Release::search(query).execute_with_client(&client).await {
                 Ok(search_result) => {
                     let release_id = search_result.entities.first().map(|r| r.id.clone());
-                    release_cache.insert((artist.clone(), album.clone()), release_id);
+                    e.insert(release_id);
                     // Send progress for completed MusicBrainz search
                     tx.send(format!(
                         "COMPLETED: MusicBrainz search for {} - {}",

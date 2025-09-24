@@ -253,8 +253,7 @@ fn extract_from_path(file_path: &Path) -> Result<(String, String)> {
         .map(|name| {
             // Clean up common album directory naming patterns
             let cleaned = name
-                .replace('_', " ")
-                .replace('-', " ")
+                .replace(['_', '-'], " ")
                 .split_whitespace()
                 .filter(|word| {
                     // Filter out common non-album words
@@ -286,8 +285,7 @@ fn extract_from_path(file_path: &Path) -> Result<(String, String)> {
         .map(|name| {
             // Clean up common artist directory naming patterns
             let cleaned = name
-                .replace('_', " ")
-                .replace('-', " ")
+                .replace(['_', '-'], " ")
                 .split_whitespace()
                 .filter(|word| {
                     // Filter out common non-artist words
@@ -407,8 +405,7 @@ pub fn create_artist_directories(music_dir: &str, dry_run: bool, quiet: bool) ->
             .map(|name| {
                 // Clean up the artist name
                 let cleaned = name
-                    .replace('_', " ")
-                    .replace('-', " ")
+                    .replace(['_', '-'], " ")
                     .split_whitespace()
                     .filter(|word| {
                         // Filter out common non-artist words
@@ -431,7 +428,7 @@ pub fn create_artist_directories(music_dir: &str, dry_run: bool, quiet: bool) ->
 
         artist_groups
             .entry(artist.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(album_path.clone());
     }
 

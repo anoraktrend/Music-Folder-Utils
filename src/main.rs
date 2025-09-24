@@ -308,7 +308,7 @@ fn main() -> Result<()> {
                     "Syncing Tags with MusicBrainz",
                     total_albums_for_sync,
                     move |tx, running_token_closure| {
-                        for (index, album_path) in album_paths_for_sync.iter().enumerate() {
+                        for album_path in album_paths_for_sync.iter() {
                             if !running_token_closure.load(Ordering::SeqCst) {
                                 return Ok(());
                             } // Add cancellation check
