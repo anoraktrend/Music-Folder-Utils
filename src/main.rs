@@ -127,7 +127,7 @@ fn main() -> Result<()> {
             let total_albums = album_paths.len();
             let rt_handle = rt.handle().clone(); // Clone the handle once
             tui::run_tui("Syncing Tags with MusicBrainz", total_albums, move |tx, running_token_closure| {
-                for index in 0..total_albums {
+                for index in 0..album_paths.len() {
                     if !running_token_closure.load(Ordering::SeqCst) { return Ok(()); } // Add cancellation check
                     rt_handle.block_on(commands::sync::process_single_album_sync_tags(&album_paths[index], tx.clone()))?;
                 }

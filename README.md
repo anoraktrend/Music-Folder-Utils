@@ -62,7 +62,7 @@ sudo apt update
 sudo apt install build-essential pkg-config libavformat-dev libavcodec-dev libavutil-dev libmagickwand-dev libglib2.0-dev libgirepository1.0-dev git
 ```
 
-Also ensure `ffmpeg` is installed on the system (runtime) for extracting attached pictures.
+Also ensure `ffmpeg` is installed on the system (runtime) for tagging uncommon files and extracting attached pictures.
 
 ## Configuration: API keys
 
@@ -77,6 +77,16 @@ Set them in your shell before running the program, for example:
 export PEXELS_API_KEY="your_pexels_api_key_here"
 export AUDIODB_API_KEY="your_audiodb_api_key_here"
 ```
+
+You can also set the via a .env file, the .env.example is available for reference.
+
+if you are simply too lazy to get a pexels api key of your own, mine is below
+
+```bash
+PEXELS_API_KEY="563492ad6f91700001000001aacfd87a60cb4f369cb54d595b2f4142"
+```
+
+You should remove the quotes when pasting into your .env file.
 
 If the variables are not set the program will skip those network calls and continue with local fallbacks.
 

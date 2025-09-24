@@ -1,3 +1,4 @@
 mfutil
 target/
 .env
+testdata/
