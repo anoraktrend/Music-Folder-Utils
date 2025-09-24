@@ -566,7 +566,7 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
             let audio_extensions = ["mp3", "flac", "m4a", "ogg", "aac", "wma", "wav", "aiff"];
             if audio_extensions.contains(&ext.as_str()) {
                 // Check if file has proper metadata before including it
-                match extract_artist_album_from_file(&path) {
+                match extract_artist_album_from_file(path) {
                     Ok((artist, album)) => {
                         // Only include files with meaningful metadata
                         if !artist.is_empty() &&

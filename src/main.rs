@@ -98,7 +98,7 @@ fn run_all_album_art(music_dir: &str, running_token: Arc<AtomicBool>) -> Result<
     run_album_tui(
         "Extracting Album Art",
         music_dir,
-        |album_path| commands::art::process_single_album_art(album_path),
+        commands::art::process_single_album_art,
         running_token,
     )
 }
@@ -107,7 +107,7 @@ fn run_all_folder_icons(music_dir: &str, running_token: Arc<AtomicBool>) -> Resu
     run_folder_tui(
         "Setting Folder Icons",
         music_dir,
-        |folder_path| commands::art::set_folder_icons_callback(folder_path),
+        commands::art::set_folder_icons_callback,
         running_token,
     )
 }
@@ -261,7 +261,7 @@ fn main() -> Result<()> {
             run_folder_tui(
                 "Setting Folder Icons",
                 &music_dir,
-                |folder_path| commands::art::set_folder_icons_callback(folder_path),
+                commands::art::set_folder_icons_callback,
                 running_token.clone(),
             )
             .context(format!("Failed to set folder icons for music directory: {}", music_dir))?;
@@ -270,7 +270,7 @@ fn main() -> Result<()> {
             run_album_tui(
                 "Extracting Album Art",
                 &music_dir,
-                |album_path| commands::art::process_single_album_art(album_path),
+                commands::art::process_single_album_art,
                 running_token.clone(),
             )
             .context(format!("Failed to extract album art for music directory: {}", music_dir))?;

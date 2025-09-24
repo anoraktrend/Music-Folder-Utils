@@ -9,7 +9,7 @@ const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "m4a", "ogg"];
 fn is_audio_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map_or(false, |ext| AUDIO_EXTENSIONS.contains(&ext))
+        .is_some_and(|ext| AUDIO_EXTENSIONS.contains(&ext))
 }
 
 fn contains_audio_files(path: &Path) -> bool {
