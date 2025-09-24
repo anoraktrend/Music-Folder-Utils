@@ -1,24 +1,32 @@
 use anyhow::Result;
-use std::sync::{mpsc, Arc, atomic::AtomicBool};
-use std::thread;
 use std::io::{self, Write};
+use std::sync::{atomic::AtomicBool, mpsc, Arc};
+use std::thread;
 
-pub fn run_tui<F>(title: &str, initial_total: usize, process_item: F, running_token: Arc<AtomicBool>) -> Result<()> 
+pub fn run_tui<F>(
+    title: &str,
+    initial_total: usize,
+    process_item: F,
+    running_token: Arc<AtomicBool>,
+) -> Result<()>
 where
-    F: FnOnce(mpsc::Sender<String>, Arc<AtomicBool>) -> Result<()> + Send + 'static, 
+    F: FnOnce(mpsc::Sender<String>, Arc<AtomicBool>) -> Result<()> + Send + 'static,
 {
     let (tx, rx) = mpsc::channel::<String>();
 
     let running_token_for_thread = running_token.clone();
-    let processing_thread = thread::spawn(move || {
-        process_item(tx, running_token_for_thread)
-    });
+    let processing_thread = thread::spawn(move || process_item(tx, running_token_for_thread));
 
     let mut current_item_count = 0;
     let mut total_items = initial_total;
-    // Print initial display (title + 2 empty lines for progress display)
-    // Title line, then two empty lines (one for the progress bar, one for the current item)
-    print!("Starting: {}\n\n\n", title);
+
+    // Get terminal dimensions
+    let (cols, rows) = crossterm::terminal::size()
+        .map(|(c, r)| (c as usize, r as usize))
+        .unwrap_or((80, 24));
+
+    // Print initial display (title at top)
+    println!("Starting: {}", title);
     io::stdout().flush()?;
 
     while let Ok(name) = rx.recv() {
@@ -73,31 +81,57 @@ where
 
         // Determine terminal width and compute bar length to fill available space.
         // Reserve space for the percentage and counts text and a small padding.
-        let cols = crossterm::terminal::size().map(|(c, _r)| c as usize).unwrap_or(80);
         let meta = format!(" {:.2}% - {}/{}", progress, current_item_count, total_items);
         // Reserve for brackets + one space padding
         let reserved = meta.len().saturating_add(3);
         let bar_length = if cols > reserved { cols - reserved } else { 10 };
         let mut filled_length = ((progress / 100.0) * bar_length as f64).round() as usize;
-        if filled_length > bar_length { filled_length = bar_length; }
+        if filled_length > bar_length {
+            filled_length = bar_length;
+        }
         let bar = "#".repeat(filled_length) + &"-".repeat(bar_length - filled_length);
 
-        // Clear screen and redraw everything for consistent display
-        print!("\x1B[2J\x1B[H"); // Clear screen and move cursor to top-left
-        print!("Starting: {}\n", title);
+        // Clear screen and position cursor at bottom for progress bar
+        print!("\x1B[2J"); // Clear screen
+        print!("\x1B[{}A", rows - 2); // Move cursor up to near bottom (leave space for title and progress)
 
-        // Print progress bar
-        print!("[{}] {:.2}% - {}/{}\n", bar, progress, current_item_count, total_items);
-        // Print current item
-        print!("{}\n", current_item_name);
+        // Print title at top
+        println!("Starting: {}", title);
+
+        // Position cursor at bottom for progress bar
+        print!("\x1B[{}B", rows - 3); // Move down to bottom area
+
+        // Print progress bar at bottom
+        print!("[{}]{} \x1B[1A", bar, meta); // Print progress bar and move up one line
+
+        // Print current item above progress bar
+        print!("\x1B[1A{}\x1B[1B", current_item_name); // Move up, print item, move back down
+
         io::stdout().flush()?;
     }
 
     processing_thread.join().unwrap()?;
 
-    // Keep the final progress bar and item visible, just add the finished message
-    // Move cursor down to add the completion message without clearing
-    print!("\n\x1B[1;32m✓ Finished: {}\x1B[0m\n", title);
+    // Final display - keep progress bar at bottom with completion message
+    print!("\x1B[2J"); // Clear screen
+    print!("\x1B[{}A", rows - 3); // Move cursor up to near bottom
+    println!("Starting: {}", title);
+    print!("\x1B[{}B", rows - 4); // Move down to bottom area
+
+    // Print final progress bar
+    let progress = 100.0;
+    let meta = format!(" {:.2}% - {}/{}", progress, total_items, total_items);
+    let bar_length = if cols > meta.len().saturating_add(3) {
+        cols - meta.len().saturating_add(3)
+    } else {
+        10
+    };
+    let bar = "#".repeat(bar_length);
+    print!("[{}]{} \x1B[1A", bar, meta);
+
+    // Print completion message above progress bar
+    print!("\x1B[1A\x1B[1;32m✓ Finished: {}\x1B[0m\x1B[1B", title);
+
     io::stdout().flush()?;
     Ok(())
 }

@@ -1,4 +1,5 @@
-pub mod art;
 pub mod albums;
-pub mod tracks;
+pub mod art;
+pub mod organize;
 pub mod sync;
+pub mod tracks;

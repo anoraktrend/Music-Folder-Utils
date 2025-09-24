@@ -1,6 +1,6 @@
-use anyhow::{Result};
-use std::path::Path;
+use anyhow::Result;
 use std::fs;
+use std::path::Path;
 use walkdir::WalkDir;
 
 pub fn get_all_album_paths(music_dir: &str) -> Result<Vec<std::path::PathBuf>> {
@@ -45,7 +45,8 @@ pub fn get_all_track_paths(music_dir: &str) -> Result<Vec<std::path::PathBuf>> {
                         let track_path = track_entry.path();
                         if track_path.is_file() {
                             let ext = track_path.extension().and_then(|s| s.to_str());
-                            if matches!(ext, Some("mp3") | Some("flac") | Some("m4a") | Some("ogg")) {
+                            if matches!(ext, Some("mp3") | Some("flac") | Some("m4a") | Some("ogg"))
+                            {
                                 track_paths.push(track_path);
                             }
                         }
@@ -61,7 +62,11 @@ pub fn get_all_folder_paths(music_dir: &str) -> Result<Vec<std::path::PathBuf>> 
     let music_dir = shellexpand::tilde(music_dir);
     let mut folder_paths = Vec::new();
 
-    for entry in WalkDir::new(music_dir.as_ref()).follow_links(true).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(music_dir.as_ref())
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_dir() {
             folder_paths.push(entry.path().to_path_buf());
         }

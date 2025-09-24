@@ -1,0 +1,13 @@
+[target.x86_64-unknown-linux-gnu]
+# Use the Rust LLVM tools (llvm-ar, llvm-objcopy, etc.)
+ar = "rust-lld"
+linker = "clang"
+rustflags = [
+    "-C", "link-arg=-fuse-ld=ld.lld",
+    "-C", "link-arg=--ld-path=ld.lld"
+]
+
+# For release builds, enable LTO and codegen optimizations
+[profile.release]
+lto = true
+codegen-units = 1
