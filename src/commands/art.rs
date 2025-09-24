@@ -8,9 +8,15 @@ use serde::Deserialize;
 use reqwest;
 use urlencoding;
 use magick_rust::{MagickWand};
+use std::env;
 
-const PEXELS_API_KEY: &str = "563492ad6f91700001000001aacfd87a60cb4f369cb54d595b2f4142";
-const AUDIODB_API_KEY: &str = "123"; // Placeholder
+fn pexels_api_key() -> Result<String> {
+    env::var("PEXELS_API_KEY").map_err(|_| anyhow::anyhow!("Missing PEXELS_API_KEY environment variable"))
+}
+
+fn audiodb_api_key() -> Result<String> {
+    env::var("AUDIODB_API_KEY").map_err(|_| anyhow::anyhow!("Missing AUDIODB_API_KEY environment variable"))
+}
 
 #[derive(Deserialize, Debug)]
 struct PexelsPhotoSrc {
@@ -41,7 +47,16 @@ pub fn extract_artist_art(music_dir: &str) -> Result<()> {
                 let rt = tokio::runtime::Runtime::new()?; // Need a runtime for async call
                 let audiodb_fetch_successful = rt.block_on(async {
                     let client = reqwest::Client::new();
-                    let audiodb_url = format!("https://www.theaudiodb.com/api/v1/json/{}/search.php?s={}", AUDIODB_API_KEY, urlencoding::encode(artist_name));
+                    let key = match audiodb_api_key() { Ok(k) => k, Err(_) => String::new() };
+                    let audiodb_url = if key.is_empty() {
+                        String::new()
+                    } else {
+                        format!("https://www.theaudiodb.com/api/v1/json/{}/search.php?s={}", key, urlencoding::encode(artist_name))
+                    };
+                    if audiodb_url.is_empty() {
+                        println!("AUDIODB_API_KEY not set, skipping AudioDB artist fetch for {}", artist_name);
+                        return Ok(false) as Result<bool, anyhow::Error>;
+                    }
                     let audiodb_response = client.get(&audiodb_url).send().await?;
 
                     if audiodb_response.status().is_success() {
@@ -142,8 +157,13 @@ async fn fetch_and_save_placeholder(path: &Path, name: &str, category: &str) -> 
         let client = reqwest::Client::new();
         let query = format!("{} {}", category, name);
         let url = format!("https://api.pexels.com/v1/search?query={}&per_page=1", urlencoding::encode(&query));
+        let key = pexels_api_key();
+        if let Err(_) = key {
+            println!("PEXELS_API_KEY not set, skipping placeholder fetch for {}", name);
+            return Ok(());
+        }
         let response = client.get(&url)
-            .header("Authorization", PEXELS_API_KEY)
+            .header("Authorization", key.unwrap())
             .send()
             .await?;
 
