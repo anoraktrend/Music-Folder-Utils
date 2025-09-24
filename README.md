@@ -1,10 +1,21 @@
 # Music Folder Utils (mfutil)
 
-Set album art as folder icons and create album/track symlink collections for Linux desktops (GNOME/KDE).
+A comprehensive music library management tool for Linux desktops (GNOME/KDE). Organizes music files, extracts album art, creates symlinks, and syncs metadata with MusicBrainz.
 
 ![Nautilus with Album Art Icons](media/Screenshot_Nautilus.jpg) ![Dolphin with Album Art Icons](media/Screenshot_Dolphin.jpg)
 
 Note: the project is implemented in Rust. Older references to a C program and `make` are outdated — use `cargo` to build and run.
+
+## ✨ Features
+
+- **🎵 Music Library Organization** - Automatically organizes music into `Artists/Artist/Album` structure
+- **🖼️ Album Art Integration** - Extracts embedded artwork and sets as folder icons
+- **🔗 Smart Symlinks** - Creates `Albums/` and `Tracks/` directories with organized symlinks
+- **🎼 Metadata Sync** - Updates all music metadata from MusicBrainz database
+- **📁 Import Management** - Import music from external directories with metadata validation
+- **🔄 Reorganize** - Find and reorganize misplaced music files
+- **⚡ Fast Processing** - Parallel processing for large music collections
+- **🛡️ Quality Control** - Validates metadata before importing, excludes files without proper tags
 
 ## Quick start
 
@@ -108,16 +119,38 @@ just install-local  # Install for current user
 
 The binary exposes these subcommands (see `src/main.rs`):
 
-- `art [music_dir]` — extract album/artist art and set folder icons
+- `all [music_dir]` — run sync, reorganize, import (with metadata validation), organize, create album and track symlinks
 - `albums [music_dir]` — create symlinks for albums under `Albums/`
 - `tracks [music_dir]` — create symlinks for tracks under `Tracks/`
-- `sync [music_dir]` — query MusicBrainz and update tags
-- `all [music_dir]` — run sync, fetch artist art, set icons, extract album art, create album and track symlinks
+- `sync [music_dir]` — query MusicBrainz and update all metadata tags (MusicBrainz Release IDs and other metadata)
+- `art [music_dir]` — extract album/artist art and set folder icons
+- `reorganize [music_dir]` — reorganize misplaced files to their proper artist/album structure based on metadata
+- `import <import_path> [music_dir]` — import files from an external directory and organize them into the music library structure
+- `organize [music_dir]` — organize music files within the music directory structure
 
-Example:
+### Examples
 
 ```bash
+# Complete workflow - sync, reorganize, import, organize, and create symlinks
+cargo run --release -- all ~/Music
+
+# Sync metadata with MusicBrainz
 cargo run --release -- sync ~/Music
+
+# Import music from Downloads with metadata validation
+cargo run --release -- import ~/Downloads/Music ~/Music
+
+# Reorganize misplaced files
+cargo run --release -- reorganize ~/Music
+
+# Extract album art and set folder icons
+cargo run --release -- art ~/Music
+
+# Create album symlinks
+cargo run --release -- albums ~/Music
+
+# Create track symlinks
+cargo run --release -- tracks ~/Music
 ```
 
 ## Project layout & important files
@@ -125,7 +158,37 @@ cargo run --release -- sync ~/Music
 - `src/main.rs` — CLI parsing and orchestration using a small TUI helper
 - `src/tui.rs` — `run_tui(title, total, closure, running_token)` progress helper (uses `mpsc::Sender<String>` to receive progress messages)
 - `src/utils.rs` — filesystem helpers (expects a `~/Music/Artists` layout)
-- `src/commands/` — per-feature modules: `art.rs`, `albums.rs`, `tracks.rs`, `sync.rs`
+- `src/commands/` — per-feature modules:
+  - `art.rs` — album/artist art extraction and folder icon management
+  - `albums.rs` — album symlink creation and management
+  - `tracks.rs` — track symlink creation and management
+  - `sync.rs` — MusicBrainz metadata synchronization
+  - `organize.rs` — music library organization, reorganization, and import functionality
+
+## Enhanced Features
+
+### 🎼 Comprehensive Metadata Sync
+- Updates all available metadata from MusicBrainz database
+- MusicBrainz Release IDs, artist, album, release date, and track information
+- Runs before import operations to ensure clean metadata
+
+### 📁 Smart Import with Validation
+- Import music from external directories (Downloads, Desktop, etc.)
+- **Metadata validation** - Only imports files with proper artist/album information
+- **Quality control** - Excludes files without sufficient metadata
+- **Conflict prevention** - Won't overwrite existing organized files
+
+### 🔄 Intelligent Reorganization
+- Finds and reorganizes misplaced music files
+- Scans entire music directory for scattered audio files
+- Automatically determines correct artist/album structure
+- Preserves existing organized files
+
+### ⚡ Optimized Workflow
+- **Proper ordering**: Sync → Reorganize → Import → Organize → Symlinks
+- **Parallel processing** for large music collections
+- **Progress tracking** with detailed status updates
+- **Error handling** with graceful fallbacks
 
 ## System dependencies
 
@@ -183,6 +246,9 @@ export AUDIODB_API_KEY="your_audiodb_api_key_here"
 
 You can also set them via a .env file, the .env.example is available for reference.
 
+**Free Tier API Keys:**
+- AudioDB free tier key: `123`
+
 if you are simply too lazy to get a pexels api key of your own, mine is below
 
 ```bash
@@ -193,12 +259,78 @@ You should remove the quotes when pasting into your .env file.
 
 If the variables are not set the program will skip those network calls and continue with local fallbacks.
 
-## Notes & conventions
+## Enhanced Workflow
 
-- Music directory layout: expects a `Artists/` directory with per-artist folders and their albums. The tool will create `Albums/` and `Tracks/` siblings for symlinks.
-- Folder icons: the program writes `.folder.jpg` files inside directories and a `.directory` file with `Icon=./.folder.jpg` so GNOME/KDE will display the custom icon.
-- Progress protocol: TUI workers send human-readable strings down an `mpsc::Sender<String>`; keep that contract if you change `tui.rs`.
-- Async vs sync: network functions in commands are async (reqwest + tokio). Many call sites use a `tokio::runtime::Runtime` and `block_on`. If you change APIs, maintain compatibility or update all callers.
+The `all` command provides a comprehensive music library management workflow:
+
+```bash
+cargo run --release -- all ~/Music
+```
+
+### Complete Workflow Steps:
+
+1. **🔄 Sync** - Updates all metadata from MusicBrainz database
+   - MusicBrainz Release IDs, artist, album, release date, track information
+   - Runs first to ensure clean metadata for subsequent operations
+
+2. **📁 Reorganize** - Finds and reorganizes misplaced files
+   - Scans entire music directory for scattered audio files
+   - Moves files to proper `Artists/Artist/Album` structure
+   - Preserves existing organized files
+
+3. **📥 Import** - Imports external files with metadata validation
+   - Imports from Downloads, Desktop, or other external directories
+   - **Validates metadata** - Only imports files with proper artist/album info
+   - **Quality control** - Excludes files without sufficient metadata
+   - **Conflict prevention** - Won't overwrite existing files
+
+4. **🎵 Organize** - Organizes internal subfolders
+   - Handles folders already within the music directory
+   - Reorganizes complex nested structures
+   - Ensures consistent `Artists/Artist/Album` layout
+
+5. **🔗 Album Symlinks** - Creates organized album collection
+   - Creates `Albums/` directory with symlinks to all albums
+   - Provides flat view of entire music collection
+   - Optimized for media players and browsing
+
+6. **🎼 Track Symlinks** - Creates organized track collection
+   - Creates `Tracks/` directory with symlinks to all tracks
+   - Provides flat view of all individual tracks
+   - Perfect for shuffle playback and track discovery
+
+### Individual Commands
+
+For more control, use individual commands:
+
+```bash
+# Sync only
+cargo run --release -- sync ~/Music
+
+# Import with validation
+cargo run --release -- import ~/Downloads ~/Music
+
+# Reorganize misplaced files
+cargo run --release -- reorganize ~/Music
+
+# Extract art and set icons
+cargo run --release -- art ~/Music
+```
+
+### Skip Options
+
+The `all` command supports skipping specific steps:
+
+```bash
+# Skip sync and art processing
+cargo run --release -- all ~/Music --skip sync,art
+
+# Skip reorganize step
+cargo run --release -- all ~/Music --skip reorganize
+
+# Skip import step
+cargo run --release -- all ~/Music --skip import
+```
 
 ## Security / configuration
 

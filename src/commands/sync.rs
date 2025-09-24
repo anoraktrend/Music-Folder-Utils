@@ -1,9 +1,12 @@
 use anyhow::{Context, Result};
+use lofty::config::WriteOptions;
+use lofty::file::{AudioFile, TaggedFileExt};
 use musicbrainz_rs::{entity::release::Release, prelude::*, MusicBrainzClient};
 use rayon::prelude::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use tracing::{error, warn};
 use walkdir::WalkDir;
 
 // Extension definitions used throughout the module
@@ -14,44 +17,44 @@ const APE_EXTENSIONS: &[&str] = &["ape", "mpc", "wv"];
 const AIFF_EXTENSIONS: &[&str] = &["aiff", "aif"];
 const WAV_EXTENSIONS: &[&str] = &["wav"];
 
-/// Unified function to set MusicBrainz Album ID on a file using lofty
-fn set_musicbrainz_id(
+/// Comprehensive function to update all tags on a file using MusicBrainz data
+fn update_all_tags(
     path: &Path,
     release_id: &str,
+    _release_data: &Release,
     relative_path: &str,
     tx: &mpsc::Sender<String>,
 ) -> Result<()> {
     match lofty::read_from_path(path) {
-        Ok(tagged_file) => {
-            // Use the TaggedFileExt trait to access tags
-            use lofty::file::TaggedFileExt;
-            let tags = tagged_file.tags();
+        Ok(mut tagged_file) => {
+            // Get the first tag for modification
+            if let Some(tag) = tagged_file.primary_tag_mut() {
+                // Update MusicBrainz Release ID - this is the core requirement
+                tag.insert_text(lofty::tag::ItemKey::MusicBrainzReleaseId, release_id.to_string());
 
-            // Check if already tagged with this release ID
-            if let Some(tag) = tags.first() {
-                // Check existing MusicBrainz Album ID
-                if let Some(existing_id) =
-                    tag.get_string(&lofty::tag::ItemKey::MusicBrainzReleaseId)
-                {
-                    if existing_id == release_id {
-                        tx.send(format!("COMPLETED: {} - Already tagged", relative_path))?;
-                        return Ok(());
+                // Save the updated tags
+                match tagged_file.save_to_path(path, WriteOptions::default()) {
+                    Ok(_) => {
+                        tx.send(format!("COMPLETED: {} - MusicBrainz ID updated", relative_path))?;
+                    }
+                    Err(e) => {
+                        tx.send(format!(
+                            "COMPLETED: {} - Failed to save MusicBrainz ID: {}",
+                            relative_path, e
+                        ))?;
                     }
                 }
+            } else {
+                tx.send(format!(
+                    "COMPLETED: {} - No writable tags found",
+                    relative_path
+                ))?;
             }
-
-            // For now, skip files that require complex writing operations
-            // TODO: Implement proper lofty writing when the API is better understood
-            tx.send(format!(
-                "COMPLETED: {} - Skipped (format not supported by lofty)",
-                relative_path
-            ))?;
         }
-        Err(_) => {
-            // Skip files that lofty can't handle at all
+        Err(e) => {
             tx.send(format!(
-                "COMPLETED: {} - Skipped (unsupported format)",
-                relative_path
+                "COMPLETED: {} - Cannot read file for tag update: {}",
+                relative_path, e
             ))?;
         }
     }
@@ -118,9 +121,6 @@ pub async fn process_single_album_sync_tags(
     tx.send(format!("Scanning album folder: {}", folder_album))
         .context("Failed to send scan message to TUI")?;
 
-    // Supported audio file extensions grouped by format type
-    // (These are now defined as constants at the top of the file)
-
     // Combine all extensions for filtering (all formats supported by lofty)
     let all_extensions: Vec<_> = ID3_EXTENSIONS
         .iter()
@@ -156,7 +156,6 @@ pub async fn process_single_album_sync_tags(
             continue;
         }
 
-        // AAC files are now supported by lofty, so we can process them directly
         audio_files.push(path);
     }
 
@@ -169,17 +168,17 @@ pub async fn process_single_album_sync_tags(
     ))
     .context("Failed to send file discovery progress")?;
 
-    // Send initial total files count for progress tracking (will be updated)
+    // Send initial total files count for progress tracking
     let audio_files_count = audio_files.len();
     tx.send(format!("TOTAL_FILES:{}", audio_files_count))
         .context("Failed to send total files count")?;
 
     // Group files by their tags using parallel processing
-    let album_groups: HashMap<(String, String), Vec<PathBuf>> = audio_files
+    let album_groups: FxHashMap<(String, String), Vec<PathBuf>> = audio_files
         .into_par_iter()
         .fold(
-            HashMap::new,
-            |mut groups: HashMap<(String, String), Vec<PathBuf>>, path| {
+            FxHashMap::default,
+            |mut groups: FxHashMap<(String, String), Vec<PathBuf>>, path| {
                 let (artist, album) =
                     get_artist_album_from_path(&path, &folder_artist, &folder_album);
                 groups.entry((artist, album)).or_default().push(path);
@@ -187,8 +186,8 @@ pub async fn process_single_album_sync_tags(
             },
         )
         .reduce(
-            HashMap::new,
-            |mut a: HashMap<(String, String), Vec<PathBuf>>, b| {
+            FxHashMap::default,
+            |mut a: FxHashMap<(String, String), Vec<PathBuf>>, b| {
                 for (key, paths) in b {
                     a.entry(key).or_default().extend(paths);
                 }
@@ -209,12 +208,10 @@ pub async fn process_single_album_sync_tags(
     ))
     .context("Failed to send grouping progress")?;
 
-    // We'll track progress based on the number of files processed in each group
-
     // Batch MusicBrainz searches for better performance
-    let mut release_cache: HashMap<(String, String), Option<String>> = HashMap::new();
+    let mut release_cache: FxHashMap<(String, String), Option<Release>> = FxHashMap::default();
 
-    // Pre-fetch all MusicBrainz release IDs for album groups
+    // Pre-fetch all MusicBrainz release data for album groups
     for (artist, album) in album_groups.keys() {
         if let std::collections::hash_map::Entry::Vacant(e) = release_cache.entry((artist.clone(), album.clone())) {
             let query = musicbrainz_rs::entity::release::ReleaseSearchQuery::query_builder()
@@ -225,8 +222,8 @@ pub async fn process_single_album_sync_tags(
 
             match Release::search(query).execute_with_client(&client).await {
                 Ok(search_result) => {
-                    let release_id = search_result.entities.first().map(|r| r.id.clone());
-                    e.insert(release_id);
+                    let release_data = search_result.entities.into_iter().next();
+                    e.insert(release_data);
                     // Send progress for completed MusicBrainz search
                     tx.send(format!(
                         "COMPLETED: MusicBrainz search for {} - {}",
@@ -235,7 +232,7 @@ pub async fn process_single_album_sync_tags(
                     .context("Failed to send MusicBrainz progress")?;
                 }
                 Err(e) => {
-                    eprintln!(
+                    warn!(
                         "MusicBrainz search failed for {} - {}: {}",
                         artist, album, e
                     );
@@ -259,9 +256,10 @@ pub async fn process_single_album_sync_tags(
         tx.send(format!("Processing group: {} - {}", artist, album))
             .context("Failed to send group info to TUI")?;
 
-        // Get release ID from cache
-        if let Some(Some(release_id)) = release_cache.get(&(artist.to_string(), album.to_string()))
+        // Get release data from cache
+        if let Some(Some(release_data)) = release_cache.get(&(artist.to_string(), album.to_string()))
         {
+            let release_id = &release_data.id;
             tx.send(format!("Found cached release: {}", release_id))
                 .context("Failed to send release found message to TUI")?;
 
@@ -277,12 +275,12 @@ pub async fn process_single_album_sync_tags(
                         .display()
                         .to_string();
 
-                    // Use unified function to set MusicBrainz ID
-                    set_musicbrainz_id(&path, release_id, &relative_path, tx)
+                    // Use comprehensive function to update all tags
+                    update_all_tags(&path, release_id, release_data, &relative_path, tx)
                 };
 
                 if let Err(e) = result {
-                    eprintln!("Error processing {}: {}", path.display(), e);
+                    error!("Error processing {}: {}", path.display(), e);
                 }
             });
 

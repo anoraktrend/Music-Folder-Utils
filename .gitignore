@@ -2,3 +2,4 @@ mfutil
 target/
 .env
 testdata/
+Cargo.lock
