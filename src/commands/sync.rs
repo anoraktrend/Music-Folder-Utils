@@ -313,8 +313,8 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use std::fs;
+    use std::io::Write;
     use std::sync::mpsc;
-    use std::path::Path;
 
     #[tokio::test]
     async fn test_process_single_album_sync_tags_with_valid_album() -> Result<()> {
@@ -345,7 +345,7 @@ mod tests {
 
         // We should receive some progress messages
         let mut message_count = 0;
-        while let Ok(_) = rx.try_recv() {
+        while rx.try_recv().is_ok() {
             message_count += 1;
         }
         assert!(message_count > 0, "Should receive at least one progress message");
@@ -361,7 +361,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<String>();
 
         // This should fail gracefully
-        let result = std::panic::AssertUnwindSafe(async {
+        let _result = std::panic::AssertUnwindSafe(async {
             process_single_album_sync_tags(&nonexistent_album, tx).await
         });
 
@@ -387,7 +387,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<String>();
 
         // This should complete without processing any files
-        let result = std::panic::AssertUnwindSafe(async {
+        let _result = std::panic::AssertUnwindSafe(async {
             process_single_album_sync_tags(&album_dir, tx).await
         });
 
@@ -416,7 +416,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<String>();
 
         // Should process only audio files
-        let result = std::panic::AssertUnwindSafe(async {
+        let _result = std::panic::AssertUnwindSafe(async {
             process_single_album_sync_tags(&album_dir, tx).await
         });
 
@@ -444,7 +444,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<String>();
 
         // Should skip all unsupported files
-        let result = std::panic::AssertUnwindSafe(async {
+        let _result = std::panic::AssertUnwindSafe(async {
             process_single_album_sync_tags(&album_dir, tx).await
         });
 
@@ -460,7 +460,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<String>();
 
         // This should fail because album has no artist parent
-        let result = std::panic::AssertUnwindSafe(async {
+        let _result = std::panic::AssertUnwindSafe(async {
             process_single_album_sync_tags(&album_dir, tx).await
         });
 

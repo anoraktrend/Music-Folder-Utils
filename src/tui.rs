@@ -68,7 +68,6 @@ where
 mod tests {
     use super::*;
     use std::sync::{Arc, atomic::AtomicBool};
-    use std::sync::mpsc;
 
     #[test]
     fn test_run_tui_with_simple_operation() -> Result<()> {
@@ -133,7 +132,7 @@ mod tests {
     fn test_run_tui_with_cancellation() -> Result<()> {
         let running_token = Arc::new(AtomicBool::new(false)); // Start as cancelled
 
-        let result = run_tui("Test Operation", 10, |tx, cancel_token| {
+        let result = run_tui("Test Operation", 10, |tx, _cancel_token| {
             // This should not execute because we're cancelled
             tx.send("This should not appear".to_string())?;
             Ok(())

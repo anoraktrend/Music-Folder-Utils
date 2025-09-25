@@ -732,6 +732,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use std::fs;
+    use std::io::Write;
 
     #[test]
     fn test_organize_music_library_creates_directories() -> Result<()> {

@@ -89,6 +89,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use std::fs;
+    use std::io::Write;
     use std::os::unix::fs::symlink;
 
     #[test]
