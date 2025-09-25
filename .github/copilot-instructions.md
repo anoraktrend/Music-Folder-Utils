@@ -14,13 +14,23 @@ src/
 ├── main.rs              # CLI parsing, command dispatch, TUI orchestration
 ├── tui.rs               # Progress reporting and user interface
 ├── utils.rs             # Filesystem utilities and path discovery
-└── commands/            # Feature-specific modules
+├── commands/            # Feature-specific modules
+│   ├── mod.rs           # Module declarations
+│   ├── albums.rs        # Album symlink creation
+│   ├── art.rs           # Album art extraction and folder icons
+│   ├── cd.rs            # Change directory command
+│   ├── import.rs        # Import new music
+│   ├── organize.rs      # Music library organization
+│   ├── reorganize.rs    # Reorganize existing music
+│   ├── sync.rs          # MusicBrainz metadata synchronization
+│   └── tracks.rs        # Track symlink creation
+└── lib/                 # Core library functionality
     ├── mod.rs           # Module declarations
-    ├── art.rs           # Album art extraction and folder icons
-    ├── albums.rs        # Album symlink creation
-    ├── tracks.rs        # Track symlink creation
-    ├── sync.rs          # MusicBrainz metadata synchronization
-    └── organize.rs      # Music library organization and import
+    ├── cover_art.rs     # Cover art fetching and processing
+    ├── metadata.rs      # Music metadata handling
+    ├── musicbrainz.rs   # MusicBrainz API integration
+    ├── tagging.rs       # Audio file tagging
+    └── utils.rs         # Library-specific utilities
 ```
 
 #### Data Flow Pattern

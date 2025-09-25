@@ -35,6 +35,7 @@ Windsurf has been trained on the music-folder-utils project structure:
 - **TUI Protocol**: `tui.rs` manages progress reporting and user interaction
 - **Modular Design**: `commands/` directory contains feature-specific modules
 - **Utility Layer**: `utils.rs` provides filesystem and path discovery functions
+- **Core Library**: `lib/` contains the core functionality of the application
 
 ### API Integration Support
 Windsurf understands the project's API integrations:
