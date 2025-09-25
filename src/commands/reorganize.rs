@@ -6,86 +6,72 @@ use std::path::{Path, PathBuf};
 use tracing::info;
 use walkdir::WalkDir;
 
-/// Organize music files into proper artist/album structure
-pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Result<()> {
+/// Reorganize files that are not in their correct artist/album structure
+/// This function finds files that are misplaced and moves them to their proper locations
+pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -> Result<()> {
     let music_dir = shellexpand::tilde(music_dir).to_string();
     let music_path = Path::new(&music_dir);
     let artists_path = music_path.join("Artists");
 
-    if !music_path.exists() {
-        if dry_run {
-            if !quiet {
-                println!("Would create music directory: {}", music_path.display());
-            }
-        } else {
-            fs::create_dir_all(music_path).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to create music directory '{}': {}",
-                    music_path.display(),
-                    e
-                )
-            })?;
-        }
-    }
-
-    if !artists_path.exists() {
-        if dry_run {
-            if !quiet {
-                println!("Would create Artists directory: {}", artists_path.display());
-            }
-        } else {
-            fs::create_dir(&artists_path).map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to create Artists directory '{}': {}",
-                    artists_path.display(),
-                    e
-                )
-            })?;
-        }
+    if !artists_path.exists() || !artists_path.is_dir() {
+        return Err(anyhow::anyhow!(
+            "Artists directory '{}' does not exist. Run organize first to create the directory structure.",
+            artists_path.display()
+        ));
     }
 
     if !quiet {
-        info!("🔍 Scanning music directory: {}", music_path.display());
+        info!("🔍 Scanning for misplaced files to reorganize...");
     }
 
-    // Find all audio files in the music directory
     let mut files_to_move = Vec::new();
-    let mut unknown_files = Vec::new();
+    let mut total_processed = 0;
 
-    for entry in WalkDir::new(music_path).into_iter().filter_map(|e| e.ok()) {
-        if entry.path().is_file() {
-            let path = entry.path();
+    // Walk through the music directory and find audio files
+    for entry in WalkDir::new(music_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+
+        // Skip the Artists directory and its contents - these are already organized
+        if path.starts_with(&artists_path) {
+            continue;
+        }
+
+        // Only process audio files
+        if path.is_file() {
             let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(|e| e.to_lowercase())
                 .unwrap_or_default();
 
-            // Check if it's an audio file
             let audio_extensions = ["mp3", "flac", "m4a", "ogg", "aac", "wma", "wav", "aiff"];
             if audio_extensions.contains(&ext.as_str()) {
                 files_to_move.push(path.to_path_buf());
-            } else {
-                unknown_files.push(path.to_path_buf());
             }
         }
     }
 
-    if !quiet {
-        info!("✅ Found {} audio files to organize", files_to_move.len());
-    }
-    if !quiet && !unknown_files.is_empty() {
-        info!(
-            "ℹ️  Found {} non-audio files (will be left in place)",
-            unknown_files.len()
-        );
+    if files_to_move.is_empty() {
+        if !quiet {
+            info!("✅ No misplaced files found. All files are already properly organized.");
+        }
+        return Ok(());
     }
 
-    // Group files by artist and album
+    if !quiet {
+        info!("📁 Found {} misplaced files to reorganize", files_to_move.len());
+    }
+
+    // Group files by their correct artist/album based on metadata
     let mut file_groups: FxHashMap<(String, String), Vec<PathBuf>> = FxHashMap::default();
-    let mut total_files = 0;
 
     for file_path in files_to_move {
+        total_processed += 1;
+
+        // Extract artist and album information from the file
         let (artist, album) = extract_artist_album_from_file(&file_path).map_err(|e| {
             anyhow::anyhow!(
                 "Failed to extract metadata from '{}': {}",
@@ -94,7 +80,7 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
             )
         })?;
 
-        // Create a clean filename for the group key
+        // Create clean names for directory creation
         let clean_artist = sanitize_filename(&artist);
         let clean_album = sanitize_filename(&album);
 
@@ -103,11 +89,9 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
             .or_default()
             .push(file_path.clone());
 
-        total_files += 1;
-
         if dry_run && !quiet {
             info!(
-                "Would organize: {} -> {} / {}",
+                "Would reorganize: {} -> {} / {}",
                 file_path.display(),
                 clean_artist,
                 clean_album
@@ -117,15 +101,15 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
 
     if !quiet && dry_run {
         info!(
-            "📊 Found {} unique artist/album combinations",
-            file_groups.len()
+            "📊 Found {} unique artist/album combinations for {} files",
+            file_groups.len(),
+            total_processed
         );
     }
 
-    // Store counts before moving the collections
+    // Move files to their correct locations
     let total_groups = file_groups.len();
 
-    // Create directory structure and move files
     for ((artist, album), files) in file_groups {
         let artist_path = artists_path.join(&artist);
         let album_path = artist_path.join(&album);
@@ -133,7 +117,7 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
         if dry_run {
             if !quiet {
                 info!("📁 Would create directory: {}", album_path.display());
-                for file in files {
+                for file in &files {
                     info!(
                         "  📄 Would move: {} -> {}",
                         file.display(),
@@ -142,7 +126,7 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
                 }
             }
         } else {
-            // Create directories
+            // Create directories if they don't exist
             fs::create_dir_all(&album_path).map_err(|e| {
                 anyhow::anyhow!(
                     "Failed to create album directory '{}': {}",
@@ -151,29 +135,41 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
                 )
             })?;
 
-            // Move files
+            // Move each file
             for file_path in files {
                 let file_name = file_path.file_name().ok_or_else(|| {
                     anyhow::anyhow!("File '{}' has no filename", file_path.display())
                 })?;
                 let dest_path = album_path.join(file_name);
 
-                if file_path != dest_path {
-                    fs::rename(&file_path, &dest_path).map_err(|e| {
-                        anyhow::anyhow!(
-                            "Failed to move '{}' to '{}': {}",
-                            file_path.display(),
-                            dest_path.display(),
-                            e
-                        )
-                    })?;
+                // Only move if the destination doesn't already exist
+                if dest_path.exists() {
                     if !quiet {
                         info!(
-                            "✅ Moved: {} -> {}",
+                            "⚠️  File already exists at destination, skipping: {} -> {}",
                             file_path.display(),
                             dest_path.display()
                         );
                     }
+                    continue;
+                }
+
+                // Move the file
+                fs::rename(&file_path, &dest_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to move '{}' to '{}': {}",
+                        file_path.display(),
+                        dest_path.display(),
+                        e
+                    )
+                })?;
+
+                if !quiet {
+                    info!(
+                        "✅ Reorganized: {} -> {}",
+                        file_path.display(),
+                        dest_path.display()
+                    );
                 }
             }
         }
@@ -181,12 +177,12 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
 
     if dry_run && !quiet {
         info!("\n🎭 This was a dry run. No files were actually moved.");
-        info!("💡 Run without --dry-run to perform the actual organization.");
+        info!("💡 Run without --dry-run to perform the actual reorganization.");
     } else if !quiet {
-        info!("\n🎉 Music library organization completed successfully!");
+        info!("\n🎉 File reorganization completed successfully!");
         info!(
-            "   📁 Organized {} files into {} artist/album combinations",
-            total_files, total_groups
+            "   📁 Reorganized {} files into {} artist/album combinations",
+            total_processed, total_groups
         );
     }
 
@@ -329,41 +325,62 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use std::fs;
-
+    use std::io::Write;
 
     #[test]
-    fn test_organize_music_library_creates_directories() -> Result<()> {
+    fn test_reorganize_misplaced_files_no_artists_dir() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let music_root = temp_dir.path().join("Music");
 
-        // Test that it creates the directory structure (without dry_run)
-        let result = organize_music_library(music_root.to_str().unwrap(), false, true);
+        // Test that it fails when Artists directory doesn't exist
+        let result = reorganize_misplaced_files(music_root.to_str().unwrap(), false, true);
 
-        assert!(result.is_ok());
-
-        // Check that directories were created
-        let artists_dir = music_root.join("Artists");
-        assert!(artists_dir.exists());
-        assert!(artists_dir.is_dir());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Artists directory"));
 
         Ok(())
     }
 
     #[test]
-    fn test_organize_music_library_with_existing_structure() -> Result<()> {
+    fn test_reorganize_misplaced_files_with_no_misplaced_files() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let music_root = temp_dir.path().join("Music");
         let artists_dir = music_root.join("Artists");
 
-        // Create existing structure
-        fs::create_dir_all(&music_root)?;
-        fs::create_dir(&artists_dir)?;
+        // Create proper structure with no misplaced files
+        fs::create_dir_all(&artists_dir)?;
+        let artist_dir = artists_dir.join("TestArtist");
+        fs::create_dir(&artist_dir)?;
+        let album_dir = artist_dir.join("TestAlbum");
+        fs::create_dir(&album_dir)?;
+        fs::File::create(album_dir.join("track.mp3"))?.write_all(b"audio")?;
 
-        // Test that it doesn't fail with existing structure
-        let result = organize_music_library(music_root.to_str().unwrap(), false, true);
+        // Test that it succeeds with no misplaced files
+        let result = reorganize_misplaced_files(music_root.to_str().unwrap(), false, true);
 
         assert!(result.is_ok());
-        assert!(artists_dir.exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reorganize_misplaced_files_dry_run() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+
+        // Create proper structure
+        fs::create_dir_all(&artists_dir)?;
+
+        // Create a misplaced file
+        let misplaced_file = music_root.join("misplaced.mp3");
+        fs::File::create(&misplaced_file)?.write_all(b"audio")?;
+
+        // Test dry run - should not actually move files
+        let result = reorganize_misplaced_files(music_root.to_str().unwrap(), true, true);
+
+        assert!(result.is_ok());
+        assert!(misplaced_file.exists()); // File should still be in original location
 
         Ok(())
     }

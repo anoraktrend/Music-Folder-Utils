@@ -4,7 +4,7 @@ use ffmpeg_next as ffmpeg;
 use magick_rust::magick_wand_genesis;
 use dotenvy::dotenv;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-
+mod lib;
 mod commands;
 mod utils;
 mod tui;
@@ -146,13 +146,13 @@ fn run_all_organize(music_dir: &str, running_token: Arc<AtomicBool>) -> Result<(
         if !cancel_token.load(Ordering::SeqCst) { return Ok(()); }
 
         // Step 2: Reorganize misplaced files
-        commands::organize::reorganize_misplaced_files(&music_dir_owned, false, true)?;
+        commands::reorganize::reorganize_misplaced_files(&music_dir_owned, false, true)?;
         tx.send("COMPLETED: Reorganized misplaced files".to_string())?;
 
         if !cancel_token.load(Ordering::SeqCst) { return Ok(()); }
 
         // Step 3: Import files
-        commands::organize::import_and_organize_files(&music_dir_owned, &music_dir_owned, false, true)?;
+        commands::import::import_and_organize_files(&music_dir_owned, &music_dir_owned, false, true)?;
         tx.send("COMPLETED: Imported external files".to_string())?;
 
         if !cancel_token.load(Ordering::SeqCst) { return Ok(()); }
@@ -204,9 +204,9 @@ enum Commands {
         #[arg(default_value = "~/Music")]
         music_dir: String,
     },
-    /// Sync tags with MusicBrainz
-    Sync {
-        /// Music directory
+    /// Sync music tags with MusicBrainz and fetch cover art
+    SyncWithArt {
+        /// Music directory to sync
         #[arg(default_value = "~/Music")]
         music_dir: String,
     },
@@ -216,16 +216,35 @@ enum Commands {
         #[arg(default_value = "~/Music")]
         music_dir: String,
     },
-    /// Import files from an external directory and organize them
+    /// Import music files from an external directory into the music library
     Import {
-        /// Import source directory
+        /// Path to the directory containing files to import
         import_path: String,
+        /// Music directory to import into
+        #[arg(default_value = "~/Music")]
+        music_dir: String,
+        /// Perform a dry run without actually importing files
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Import music files with MusicBrainz integration and cover art fetching
+    ImportEnhanced {
+        /// Path to the directory containing files to import
+        import_path: String,
+        /// Music directory to import into
+        #[arg(default_value = "~/Music")]
+        music_dir: String,
+        /// Perform a dry run without actually importing files
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Import music from a CD
+    Cd {
+        /// CD device path (e.g., /dev/cdrom)
+        device: String,
         /// Music directory
         #[arg(default_value = "~/Music")]
         music_dir: String,
-        /// Show what would be done without actually importing
-        #[arg(long)]
-        dry_run: bool,
     },
     /// Run all tasks (art, icons, albums, tracks)
     All {
@@ -295,26 +314,48 @@ fn main() -> Result<()> {
             )
             .context(format!("Failed to create track symlinks for music directory: {}", music_dir))?;
         }
-        Commands::Sync { music_dir } => {
+        Commands::SyncWithArt { music_dir } => {
             let album_paths = utils::get_all_album_paths(&music_dir)?;
             let total_albums = album_paths.len();
-            let rt_handle = rt.handle().clone();
-            tui::run_tui("Syncing Tags with MusicBrainz", total_albums, move |tx, cancel_token| {
-                for album_path in album_paths.iter() {
-                    if !cancel_token.load(Ordering::SeqCst) { return Ok(()); }
-                    rt_handle.block_on(commands::sync::process_single_album_sync_tags(album_path, tx.clone()))?;
-                }
+            let rt_handle = Arc::new(rt.handle().clone());
+            let music_dir_clone = Arc::new(music_dir.clone());
+            tui::run_tui("Syncing Tags & Fetching Cover Art", total_albums, move |tx, _cancel_token| {
+                rt_handle.block_on(commands::sync::sync_all_tags_with_cover_art(&music_dir_clone, tx.clone()))?;
                 Ok(())
             }, running_token)
-            .context(format!("Failed to sync tags with MusicBrainz for music directory: {}", music_dir))?;
+            .context(format!("Failed to sync tags and fetch cover art for music directory: {}", music_dir))?;
         }
         Commands::Reorganize { music_dir } => {
-            commands::organize::reorganize_misplaced_files(&music_dir, false, false)
+            commands::reorganize::reorganize_misplaced_files(&music_dir, false, false)
                 .context(format!("Failed to reorganize misplaced files in music directory: {}", music_dir))?;
         }
         Commands::Import { import_path, music_dir, dry_run } => {
-            commands::organize::import_and_organize_files(&import_path, &music_dir, dry_run, false)
+            commands::import::import_and_organize_files(&import_path, &music_dir, dry_run, false)
                 .context(format!("Failed to import files from {} to music directory: {}", import_path, music_dir))?;
+        }
+        Commands::ImportEnhanced { import_path, music_dir, dry_run } => {
+            let rt_handle = Arc::new(rt.handle().clone());
+            let import_path_clone = Arc::new(import_path.clone());
+            let music_dir_clone = Arc::new(music_dir.clone());
+            tui::run_tui("Enhanced Import with MusicBrainz", 0, move |tx, _cancel_token| {
+                rt_handle.block_on(commands::import::import_and_organize_files_with_musicbrainz(
+                    &import_path_clone, &music_dir_clone, dry_run, false, tx.clone()
+                ))?;
+                Ok(())
+            }, running_token)
+            .context(format!("Failed to import files with MusicBrainz from {} to music directory: {}", import_path, music_dir))?;
+        }
+        Commands::Cd { device, music_dir } => {
+            let album_paths = utils::get_all_album_paths(&music_dir)?;
+            let total_albums = album_paths.len();
+            let rt_handle = Arc::new(rt.handle().clone());
+            let device_clone = Arc::new(device.clone());
+            let music_dir_clone = Arc::new(music_dir.clone());
+            tui::run_tui("Importing CD", total_albums, move |tx, _cancel_token| {
+                rt_handle.block_on(commands::cd::import_cd(&device_clone, &music_dir_clone, tx.clone()))?;
+                Ok(())
+            }, running_token)
+            .context(format!("Failed to import CD from {} to music directory: {}", device, music_dir))?;
         }
         Commands::All { music_dir, skip } => {
             use std::collections::HashSet;

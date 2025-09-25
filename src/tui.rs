@@ -39,18 +39,38 @@ where
             current_item_count += 1;
             let task_description = message.strip_prefix("COMPLETED: ").unwrap_or(&message);
 
-            // Simple progress display
+            // Simple progress display with bar
             let progress = if total_items > 0 {
                 (current_item_count as f64 / total_items as f64) * 100.0
             } else {
                 100.0
             };
 
-            print!("\r🔄 {}: {:.1}% ({}/{}) - {}",
-                   title, progress, current_item_count, total_items, task_description);
+            let progress_bar = create_progress_bar(progress);
+            print!("\r {} {} {:.1}% ({}/{}) - {}",
+                   title, progress_bar, progress, current_item_count, total_items, task_description);
+        } else if message.starts_with("PROGRESS:") {
+            // Handle progress messages with custom progress value
+            let progress_info = message.strip_prefix("PROGRESS:").unwrap_or(&message);
+
+            // Try to parse progress percentage from the message
+            let progress = if let Some(percent_str) = progress_info.split('%').next() {
+                // Extract just the numeric part before the %
+                if let Some(num_str) = percent_str.split(':').next_back() {
+                    num_str.trim().parse::<f64>().unwrap_or(0.0)
+                } else {
+                    percent_str.trim().parse::<f64>().unwrap_or(0.0)
+                }
+            } else {
+                0.0
+            };
+
+            let progress_bar = create_progress_bar(progress);
+            print!("\r {}: {} {:.1}% - {}",
+                   title, progress_bar, progress, progress_info);
         } else {
             // For other messages, just print them
-            println!("\r🔄 {}: {}", title, message);
+            println!("\r {}: {}", title, message);
         }
 
         io::stdout().flush()?;
@@ -58,10 +78,38 @@ where
 
     processing_thread.join().unwrap()?;
 
-    // Final completion message
-    println!("\r✅ {} completed! ({}/{})", title, current_item_count, total_items);
+    // Final completion message with full progress bar
+    let progress = if total_items > 0 {
+        (current_item_count as f64 / total_items as f64) * 100.0
+    } else {
+        100.0
+    };
+
+    let bar_width = 20;
+    let filled_chars = ((progress / 100.0) * bar_width as f64) as usize;
+    let empty_chars = bar_width - filled_chars;
+
+    let progress_bar = format!(
+        "[{}{}]",
+        "█".repeat(filled_chars),
+        "░".repeat(empty_chars)
+    );
+
+    println!("\r {} {} {:.1}% ({}/{})", title, progress_bar, progress, current_item_count, total_items);
 
     Ok(())
+}
+
+fn create_progress_bar(progress: f64) -> String {
+    let bar_width = 20;
+    let filled_chars = ((progress / 100.0) * bar_width as f64) as usize;
+    let empty_chars = bar_width - filled_chars;
+
+    format!(
+        "[{}{}]",
+        "█".repeat(filled_chars),
+        "░".repeat(empty_chars)
+    )
 }
 
 #[cfg(test)]
@@ -173,15 +221,27 @@ mod tests {
     }
 
     #[test]
-    fn test_run_tui_with_unicode_messages() -> Result<()> {
+    fn test_run_tui_with_progress_messages() -> Result<()> {
         let running_token = Arc::new(AtomicBool::new(true));
 
-        let result = run_tui("Test Unicode", 1, |tx, _cancel_token| {
-            tx.send("Unicode test: ñáéíóú 🚀 中文".to_string())?;
+        let result = run_tui("Test Progress", 1, |tx, _cancel_token| {
+            tx.send("PROGRESS: Reading track 1: 25% complete (500 sectors)".to_string())?;
+            tx.send("PROGRESS: Reading track 1: 50% complete (1000 sectors)".to_string())?;
+            tx.send("PROGRESS: Reading track 1: 75% complete (1500 sectors)".to_string())?;
+            tx.send("PROGRESS: Reading track 1: 100% complete (2000 sectors)".to_string())?;
             Ok(())
         }, running_token);
 
         assert!(result.is_ok());
         Ok(())
+    }
+
+    #[test]
+    fn test_create_progress_bar() {
+        assert_eq!(create_progress_bar(0.0), "[░░░░░░░░░░░░░░░░░░░░]");
+        assert_eq!(create_progress_bar(25.0), "[█████░░░░░░░░░░░░░░░]");
+        assert_eq!(create_progress_bar(50.0), "[██████████░░░░░░░░░░]");
+        assert_eq!(create_progress_bar(75.0), "[███████████████░░░░░]");
+        assert_eq!(create_progress_bar(100.0), "[████████████████████]");
     }
 }

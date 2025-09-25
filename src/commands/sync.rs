@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
-use lofty::config::WriteOptions;
-use lofty::file::{AudioFile, TaggedFileExt};
-use musicbrainz_rs::{entity::release::Release, prelude::*, MusicBrainzClient};
+use musicbrainz_rs::{entity::release::Release, MusicBrainzClient};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use tracing::{error, warn};
 use walkdir::WalkDir;
+use mfutil::{musicbrainz, cover_art, tagging, utils};
 
 // Extension definitions used throughout the module
 const ID3_EXTENSIONS: &[&str] = &["mp3", "aac"];
@@ -25,41 +24,8 @@ fn update_all_tags(
     relative_path: &str,
     tx: &mpsc::Sender<String>,
 ) -> Result<()> {
-    match lofty::read_from_path(path) {
-        Ok(mut tagged_file) => {
-            // Get the first tag for modification
-            if let Some(tag) = tagged_file.primary_tag_mut() {
-                // Update MusicBrainz Release ID - this is the core requirement
-                tag.insert_text(lofty::tag::ItemKey::MusicBrainzReleaseId, release_id.to_string());
-
-                // Save the updated tags
-                match tagged_file.save_to_path(path, WriteOptions::default()) {
-                    Ok(_) => {
-                        tx.send(format!("COMPLETED: {} - MusicBrainz ID updated", relative_path))?;
-                    }
-                    Err(e) => {
-                        tx.send(format!(
-                            "COMPLETED: {} - Failed to save MusicBrainz ID: {}",
-                            relative_path, e
-                        ))?;
-                    }
-                }
-            } else {
-                tx.send(format!(
-                    "COMPLETED: {} - No writable tags found",
-                    relative_path
-                ))?;
-            }
-        }
-        Err(e) => {
-            tx.send(format!(
-                "COMPLETED: {} - Cannot read file for tag update: {}",
-                relative_path, e
-            ))?;
-        }
-    }
-
-    Ok(())
+    // Use library function to update MusicBrainz release ID
+    tagging::update_musicbrainz_release_id(path, release_id, tx)
 }
 
 /// Helper function to extract artist and album from a file path using lofty
@@ -68,31 +34,7 @@ fn get_artist_album_from_path(
     folder_artist: &str,
     folder_album: &str,
 ) -> (String, String) {
-    match lofty::read_from_path(path) {
-        Ok(tagged_file) => {
-            // Use the TaggedFileExt trait to access tags
-            use lofty::file::TaggedFileExt;
-            let tags = tagged_file.tags();
-
-            // Try to get the first tag
-            if let Some(tag) = tags.first() {
-                // Use ItemKey constants to access specific fields
-                let artist = tag
-                    .get_string(&lofty::tag::ItemKey::TrackArtist)
-                    .unwrap_or(folder_artist);
-                let album = tag
-                    .get_string(&lofty::tag::ItemKey::AlbumTitle)
-                    .unwrap_or(folder_album);
-                (artist.to_string(), album.to_string())
-            } else {
-                (folder_artist.to_string(), folder_album.to_string())
-            }
-        }
-        Err(_) => {
-            // Fallback to folder names if we can't read the tags
-            (folder_artist.to_string(), folder_album.to_string())
-        }
-    }
+    tagging::extract_artist_album_from_path_with_fallback(path, folder_artist, folder_album)
 }
 
 pub async fn process_single_album_sync_tags(
@@ -178,9 +120,9 @@ pub async fn process_single_album_sync_tags(
         .into_par_iter()
         .fold(
             FxHashMap::default,
-            |mut groups: FxHashMap<(String, String), Vec<PathBuf>>, path| {
+            |mut groups: FxHashMap<(String, String), Vec<PathBuf>>, path: PathBuf| {
                 let (artist, album) =
-                    get_artist_album_from_path(&path, &folder_artist, &folder_album);
+                    tagging::extract_artist_album_from_path_with_fallback(&path, &folder_artist, &folder_album);
                 groups.entry((artist, album)).or_default().push(path);
                 groups
             },
@@ -209,24 +151,31 @@ pub async fn process_single_album_sync_tags(
     .context("Failed to send grouping progress")?;
 
     // Batch MusicBrainz searches for better performance
-    let mut release_cache: FxHashMap<(String, String), Option<Release>> = FxHashMap::default();
+    let mut release_cache: FxHashMap<(String, String), Option<String>> = FxHashMap::default();
 
     // Pre-fetch all MusicBrainz release data for album groups
     for (artist, album) in album_groups.keys() {
         if let std::collections::hash_map::Entry::Vacant(e) = release_cache.entry((artist.clone(), album.clone())) {
-            let query = musicbrainz_rs::entity::release::ReleaseSearchQuery::query_builder()
-                .release(album)
-                .and()
-                .artist(artist)
-                .build();
-
-            match Release::search(query).execute_with_client(&client).await {
-                Ok(search_result) => {
-                    let release_data = search_result.entities.into_iter().next();
-                    e.insert(release_data);
+            // Use library function for MusicBrainz lookup
+            match musicbrainz::lookup_musicbrainz_release(artist, album, &tx).await {
+                Ok(Some((_, _, release_id))) => {
+                    e.insert(Some(release_id));
                     // Send progress for completed MusicBrainz search
                     tx.send(format!(
                         "COMPLETED: MusicBrainz search for {} - {}",
+                        artist, album
+                    ))
+                    .context("Failed to send MusicBrainz progress")?;
+                }
+                Ok(None) => {
+                    warn!(
+                        "MusicBrainz search failed for {} - {}: No release found",
+                        artist, album
+                    );
+                    release_cache.insert((artist.clone(), album.clone()), None);
+                    // Still count as completed task even if failed
+                    tx.send(format!(
+                        "COMPLETED: MusicBrainz search for {} - {} (failed)",
                         artist, album
                     ))
                     .context("Failed to send MusicBrainz progress")?;
@@ -257,9 +206,8 @@ pub async fn process_single_album_sync_tags(
             .context("Failed to send group info to TUI")?;
 
         // Get release data from cache
-        if let Some(Some(release_data)) = release_cache.get(&(artist.to_string(), album.to_string()))
+        if let Some(Some(release_id)) = release_cache.get(&(artist.to_string(), album.to_string()))
         {
-            let release_id = &release_data.id;
             tx.send(format!("Found cached release: {}", release_id))
                 .context("Failed to send release found message to TUI")?;
 
@@ -275,8 +223,8 @@ pub async fn process_single_album_sync_tags(
                         .display()
                         .to_string();
 
-                    // Use comprehensive function to update all tags
-                    update_all_tags(&path, release_id, release_data, &relative_path, tx)
+                    // Use library function to update MusicBrainz release ID
+                    tagging::update_musicbrainz_release_id(&path, release_id, tx)
                 };
 
                 if let Err(e) = result {
@@ -290,6 +238,17 @@ pub async fn process_single_album_sync_tags(
                 artist, album, paths_len
             ))
             .context("Failed to send album summary")?;
+
+            // Fetch and save cover art for this album (don't use spawn to avoid borrowing issues)
+            if let Err(e) = cover_art::save_cover_art_to_album(
+                &album_path,
+                release_id,
+                artist,
+                album,
+                &tx
+            ).await {
+                warn!("Failed to fetch cover art for {} - {}: {}", artist, album, e);
+            }
         } else {
             tx.send(format!(
                 "COMPLETED: Skipped {} - {} (no MusicBrainz match found)",
@@ -308,13 +267,23 @@ pub async fn process_single_album_sync_tags(
     Ok(())
 }
 
+/// Sync all tags with MusicBrainz and fetch cover art for all albums
+pub async fn sync_all_tags_with_cover_art(music_dir: &str, tx: mpsc::Sender<String>) -> Result<()> {
+    let album_paths = utils::get_all_album_paths(music_dir)?;
+
+    for album_path in album_paths.iter() {
+        process_single_album_sync_tags(album_path, tx.clone()).await?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
     use std::io::Write;
-    use std::sync::mpsc;
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn test_process_single_album_sync_tags_with_valid_album() -> Result<()> {
