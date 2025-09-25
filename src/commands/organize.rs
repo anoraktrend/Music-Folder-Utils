@@ -2,7 +2,6 @@ use anyhow::Result;
 use lofty::{self, file::TaggedFileExt, tag::ItemKey};
 use rustc_hash::FxHashMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use walkdir::WalkDir;

@@ -4,8 +4,6 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use musicbrainz_rs::{entity::release::Release, prelude::*, MusicBrainzClient};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use tracing::{error, warn};
