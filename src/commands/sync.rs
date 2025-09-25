@@ -1,51 +1,16 @@
 use anyhow::{Context, Result};
-use musicbrainz_rs::{entity::release::Release, MusicBrainzClient};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use tracing::{error, warn};
-use walkdir::WalkDir;
-use mfutil::{musicbrainz, cover_art, tagging, utils};
-
-// Extension definitions used throughout the module
-const ID3_EXTENSIONS: &[&str] = &["mp3", "aac"];
-const MP4_EXTENSIONS: &[&str] = &["m4a", "m4b", "m4p", "alac", "mp4"];
-const VORBIS_EXTENSIONS: &[&str] = &["flac", "ogg", "oga", "opus", "spx"];
-const APE_EXTENSIONS: &[&str] = &["ape", "mpc", "wv"];
-const AIFF_EXTENSIONS: &[&str] = &["aiff", "aif"];
-const WAV_EXTENSIONS: &[&str] = &["wav"];
+use mfutil::{musicbrainz, cover_art, tagging, utils, progress};
 
 /// Comprehensive function to update all tags on a file using MusicBrainz data
-fn update_all_tags(
-    path: &Path,
-    release_id: &str,
-    _release_data: &Release,
-    relative_path: &str,
-    tx: &mpsc::Sender<String>,
-) -> Result<()> {
-    // Use library function to update MusicBrainz release ID
-    tagging::update_musicbrainz_release_id(path, release_id, tx)
-}
-
-/// Helper function to extract artist and album from a file path using lofty
-fn get_artist_album_from_path(
-    path: &Path,
-    folder_artist: &str,
-    folder_album: &str,
-) -> (String, String) {
-    tagging::extract_artist_album_from_path_with_fallback(path, folder_artist, folder_album)
-}
-
 pub async fn process_single_album_sync_tags(
     album_path: &Path,
     tx: mpsc::Sender<String>,
 ) -> Result<()> {
-    // Set up MusicBrainz client with proper user agent
-    let mut client = MusicBrainzClient::default();
-    client
-        .set_user_agent("mfutil/0.1.1 ( https://github.com/anoraktrend/music-folder-utils )")
-        .context("Failed to set user agent")?;
     let artist_path = album_path.parent().context("Album path has no parent")?;
     let folder_artist = artist_path
         .file_name()
@@ -63,56 +28,21 @@ pub async fn process_single_album_sync_tags(
     tx.send(format!("Scanning album folder: {}", folder_album))
         .context("Failed to send scan message to TUI")?;
 
-    // Combine all extensions for filtering (all formats supported by lofty)
-    let all_extensions: Vec<_> = ID3_EXTENSIONS
-        .iter()
-        .chain(MP4_EXTENSIONS.iter())
-        .chain(VORBIS_EXTENSIONS.iter())
-        .chain(APE_EXTENSIONS.iter())
-        .chain(AIFF_EXTENSIONS.iter())
-        .chain(WAV_EXTENSIONS.iter())
-        .collect();
-
     // First, collect all audio files and count them for progress tracking
-    let mut audio_files = Vec::new();
-    let mut files_scanned = 0;
-    let mut files_skipped = 0;
+    let scan_result = utils::scan_directory_for_audio_files(album_path)
+        .context("Failed to scan directory for audio files")?;
 
-    for entry in WalkDir::new(album_path).into_iter().filter_map(|e| e.ok()) {
-        if !entry.path().is_file() {
-            continue;
-        }
-
-        let path = entry.path().to_owned();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .unwrap_or_default();
-
-        files_scanned += 1;
-
-        // Skip files we don't recognize or can't handle
-        if !all_extensions.iter().any(|&&e| e == ext) {
-            files_skipped += 1;
-            continue;
-        }
-
-        audio_files.push(path);
-    }
+    let audio_files = scan_result.audio_files;
+    let files_scanned = scan_result.files_scanned;
+    let files_skipped = scan_result.files_skipped;
 
     // Send progress for file discovery phase
-    tx.send(format!(
-        "COMPLETED: Scanned {} files ({} audio files found, {} skipped)",
-        files_scanned,
-        audio_files.len(),
-        files_skipped
-    ))
-    .context("Failed to send file discovery progress")?;
+    progress::send_scan_complete(&tx, files_scanned, audio_files.len(), files_skipped)
+        .context("Failed to send file discovery progress")?;
 
     // Send initial total files count for progress tracking
     let audio_files_count = audio_files.len();
-    tx.send(format!("TOTAL_FILES:{}", audio_files_count))
+    progress::send_total_files(&tx, audio_files_count)
         .context("Failed to send total files count")?;
 
     // Group files by their tags using parallel processing
@@ -139,16 +69,12 @@ pub async fn process_single_album_sync_tags(
 
     // Update total tasks to include MusicBrainz searches
     let total_tasks = audio_files_count + album_groups.len();
-    tx.send(format!("TOTAL_FILES:{}", total_tasks))
+    progress::send_total_files(&tx, total_tasks)
         .context("Failed to send updated total files count")?;
 
     // Send progress for file grouping phase
-    tx.send(format!(
-        "COMPLETED: Grouped {} audio files into {} album groups",
-        audio_files_count,
-        album_groups.len()
-    ))
-    .context("Failed to send grouping progress")?;
+    progress::send_grouping_complete(&tx, audio_files_count, album_groups.len())
+        .context("Failed to send grouping progress")?;
 
     // Batch MusicBrainz searches for better performance
     let mut release_cache: FxHashMap<(String, String), Option<String>> = FxHashMap::default();
@@ -161,11 +87,8 @@ pub async fn process_single_album_sync_tags(
                 Ok(Some((_, _, release_id))) => {
                     e.insert(Some(release_id));
                     // Send progress for completed MusicBrainz search
-                    tx.send(format!(
-                        "COMPLETED: MusicBrainz search for {} - {}",
-                        artist, album
-                    ))
-                    .context("Failed to send MusicBrainz progress")?;
+                    progress::send_musicbrainz_search_complete(&tx, artist, album, true)
+                        .context("Failed to send MusicBrainz progress")?;
                 }
                 Ok(None) => {
                     warn!(
@@ -174,11 +97,8 @@ pub async fn process_single_album_sync_tags(
                     );
                     release_cache.insert((artist.clone(), album.clone()), None);
                     // Still count as completed task even if failed
-                    tx.send(format!(
-                        "COMPLETED: MusicBrainz search for {} - {} (failed)",
-                        artist, album
-                    ))
-                    .context("Failed to send MusicBrainz progress")?;
+                    progress::send_musicbrainz_search_complete(&tx, artist, album, false)
+                        .context("Failed to send MusicBrainz progress")?;
                 }
                 Err(e) => {
                     warn!(
@@ -187,11 +107,8 @@ pub async fn process_single_album_sync_tags(
                     );
                     release_cache.insert((artist.clone(), album.clone()), None);
                     // Still count as completed task even if failed
-                    tx.send(format!(
-                        "COMPLETED: MusicBrainz search for {} - {} (failed)",
-                        artist, album
-                    ))
-                    .context("Failed to send MusicBrainz progress")?;
+                    progress::send_musicbrainz_search_complete(&tx, artist, album, false)
+                        .context("Failed to send MusicBrainz progress")?;
                 }
             }
         }
@@ -202,13 +119,13 @@ pub async fn process_single_album_sync_tags(
         let artist = artist.as_str();
         let album = album.as_str();
         let paths_len = paths.len(); // Store length before moving
-        tx.send(format!("Processing group: {} - {}", artist, album))
+        progress::send_processing_group(&tx, artist, album)
             .context("Failed to send group info to TUI")?;
 
         // Get release data from cache
         if let Some(Some(release_id)) = release_cache.get(&(artist.to_string(), album.to_string()))
         {
-            tx.send(format!("Found cached release: {}", release_id))
+            progress::send_custom_message(&tx, &format!("Found cached release: {}", release_id))
                 .context("Failed to send release found message to TUI")?;
 
             // Process files in parallel within this group
@@ -217,27 +134,23 @@ pub async fn process_single_album_sync_tags(
 
             paths.into_par_iter().for_each_with(tx.clone(), |tx, path| {
                 let result = {
-                    let relative_path = path
-                        .strip_prefix(&album_path)
-                        .unwrap_or(&path)
-                        .display()
-                        .to_string();
-
-                    // Use library function to update MusicBrainz release ID
-                    tagging::update_musicbrainz_release_id(&path, release_id, tx)
+                    // Calculate relative path from album directory
+                    let relative_path = path.strip_prefix(&album_path).unwrap_or(&path).to_string_lossy().to_string();
+                    tagging::process_music_file_with_musicbrainz(
+                        &path,
+                        release_id,
+                        &relative_path,
+                        tx
+                    )
                 };
-
                 if let Err(e) = result {
                     error!("Error processing {}: {}", path.display(), e);
                 }
             });
 
             // Send summary for this album group
-            tx.send(format!(
-                "COMPLETED: Finished processing {} - {} ({} files processed)",
-                artist, album, paths_len
-            ))
-            .context("Failed to send album summary")?;
+            progress::send_album_processing_complete(&tx, artist, album, paths_len)
+                .context("Failed to send album summary")?;
 
             // Fetch and save cover art for this album (don't use spawn to avoid borrowing issues)
             if let Err(e) = cover_art::save_cover_art_to_album(
@@ -250,19 +163,13 @@ pub async fn process_single_album_sync_tags(
                 warn!("Failed to fetch cover art for {} - {}: {}", artist, album, e);
             }
         } else {
-            tx.send(format!(
-                "COMPLETED: Skipped {} - {} (no MusicBrainz match found)",
-                artist, album
-            ))
-            .context("Failed to send no match message")?;
+            progress::send_album_skipped(&tx, artist, album)
+                .context("Failed to send no match message")?;
         }
     }
 
-    tx.send(format!(
-        "Successfully synchronized all files in {}",
-        folder_album
-    ))
-    .context("Failed to send success message to TUI")?;
+    progress::send_final_complete(&tx, &folder_album)
+        .context("Failed to send success message to TUI")?;
 
     Ok(())
 }

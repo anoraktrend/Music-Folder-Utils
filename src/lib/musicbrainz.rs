@@ -4,14 +4,21 @@ use std::sync::mpsc;
 use musicbrainz_rs::{entity::release::Release, prelude::*, MusicBrainzClient};
 use tracing::warn;
 
+/// Create and configure a MusicBrainz client with the standard user agent
+pub fn create_musicbrainz_client() -> Result<MusicBrainzClient> {
+    let mut client = MusicBrainzClient::default();
+    client
+        .set_user_agent("mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
+        .context("Failed to set user agent")?;
+    Ok(client)
+}
+
 /// Look up release information from MusicBrainz
 pub async fn lookup_musicbrainz_release(artist: &str, album: &str, tx: &mpsc::Sender<String>) -> Result<Option<(String, String, String)>> {
     tx.send(format!("Looking up MusicBrainz release: {} - {}", artist, album))
         .context("Failed to send MusicBrainz lookup message")?;
 
-    let mut client = MusicBrainzClient::default();
-    client.set_user_agent("mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
-        .context("Failed to set user agent")?;
+    let client = create_musicbrainz_client()?;
 
     // Search for releases by artist and album
     let query = musicbrainz_rs::entity::release::ReleaseSearchQuery::query_builder()

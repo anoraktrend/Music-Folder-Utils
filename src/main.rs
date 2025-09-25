@@ -4,7 +4,7 @@ use ffmpeg_next as ffmpeg;
 use magick_rust::magick_wand_genesis;
 use dotenvy::dotenv;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-mod lib;
+
 mod commands;
 mod utils;
 mod tui;

@@ -10,6 +10,7 @@ use flacenc::component::BitRepr;
 use flacenc::error::Verify;
 use cdparanoia;
 use serde_json;
+use mfutil::{self, cover_art};
 
 
 /// Information about a CD track
@@ -55,11 +56,11 @@ pub async fn import_cd(
     let mut cover_art_data: Option<Vec<u8>> = None;
     if let Some(release_id) = &cd_info.release_id {
         // Try MusicBrainz first
-        if let Ok(Some(cover_art)) = fetch_musicbrainz_cover_art(release_id, &tx).await {
+        if let Ok(Some(cover_art)) = cover_art::fetch_musicbrainz_cover_art(release_id, &tx).await {
             cover_art_data = Some(cover_art);
         } else {
             // Fallback to AudioDB
-            if let Ok(Some(cover_art)) = fetch_audiodb_cover_art(&cd_info.artist, &cd_info.title, &tx).await {
+            if let Ok(Some(cover_art)) = cover_art::fetch_audiodb_cover_art(&cd_info.artist, &cd_info.title, &tx).await {
                 cover_art_data = Some(cover_art);
             }
         }
@@ -165,7 +166,7 @@ async fn read_cd_from_device(device: &str, tx: mpsc::Sender<String>) -> Result<C
                 title: title.clone(),
                 artist: "Unknown Artist".to_string(),
                 duration,
-                filename: format!("{:02} {}.flac", number, sanitize_filename(&title)),
+                filename: format!("{:02} {}.flac", number, mfutil::utils::sanitize_filename(&title)),
             });
         }
     }
@@ -240,18 +241,6 @@ async fn read_cd_data(device: &str, track: &CdTrack, tx: &mpsc::Sender<String>) 
 }
 
 
-/// Sanitize filename to be safe for filesystem
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            c if c.is_control() => '_',
-            c => c,
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
 
 
 /// Look up CD information from MusicBrainz
@@ -410,7 +399,7 @@ fn cd_info_from_discid_response(release_data: &serde_json::Value, cd_info: &CdIn
                                 title: track_title.to_string(),
                                 artist: artist.to_string(),
                                 duration,
-                                filename: format!("{:02} {}.flac", number, sanitize_filename(track_title)),
+                                filename: format!("{:02} {}.flac", number, mfutil::utils::sanitize_filename(track_title)),
                             }
                         }).collect()
                     } else {
@@ -506,7 +495,8 @@ async fn import_cd_track(
 
     // Write the audio data to FLAC file
     match write_flac_file(&track_path, &audio_data, track, cover_art) {
-        Ok(()) => {
+        Ok(())
+             => {
             tx.send(format!("Encoded FLAC file: {}", track_path.display()))
                 .context("Failed to send FLAC encoding message")?;
         }
@@ -613,162 +603,13 @@ fn set_audio_metadata(
     Ok(())
 }
 
-/// Fetch cover art from MusicBrainz Cover Art Archive
-async fn fetch_musicbrainz_cover_art(release_id: &str, tx: &mpsc::Sender<String>) -> Result<Option<Vec<u8>>> {
-    tx.send(format!("Fetching cover art from MusicBrainz for release: {}", release_id))
-        .context("Failed to send cover art fetch message")?;
 
-    let cover_art_url = format!("https://coverartarchive.org/release/{}/front", release_id);
-    let client = reqwest::Client::new();
-
-    match client.get(&cover_art_url)
-        .header("User-Agent", "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
-        .send()
-        .await
-    {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.bytes().await {
-                    Ok(image_data) => {
-                        tx.send("Successfully fetched cover art from MusicBrainz".to_string())
-                            .context("Failed to send cover art success message")?;
-                        Ok(Some(image_data.to_vec()))
-                    }
-                    Err(e) => {
-                        tx.send(format!("Failed to read cover art data: {}", e))
-                            .context("Failed to send cover art data error")?;
-                        Ok(None)
-                    }
-                }
-            } else {
-                tx.send(format!("Cover art not available from MusicBrainz (status: {})", response.status()))
-                    .context("Failed to send cover art unavailable message")?;
-                Ok(None)
-            }
-        }
-        Err(e) => {
-            tx.send(format!("Failed to fetch cover art from MusicBrainz: {}", e))
-                .context("Failed to send cover art fetch error")?;
-            Ok(None)
-        }
-    }
-}
-
-/// Fetch cover art from AudioDB as fallback
-async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sender<String>) -> Result<Option<Vec<u8>>> {
-    tx.send(format!("Trying AudioDB for cover art: {} - {}", artist, album))
-        .context("Failed to send AudioDB cover art message")?;
-
-    let encoded_artist = urlencoding::encode(artist);
-    let encoded_album = urlencoding::encode(album);
-    let audiodb_url = format!(
-        "https://www.theaudiodb.com/api/v1/json/2/searchalbum.php?s={}&a={}",
-        encoded_artist, encoded_album
-    );
-
-    let client = reqwest::Client::new();
-
-    match client.get(&audiodb_url)
-        .header("User-Agent", "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
-        .send()
-        .await
-    {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.json::<serde_json::Value>().await {
-                    Ok(json_data) => {
-                        if let Some(albums) = json_data.get("album") {
-                            if let Some(albums_array) = albums.as_array() {
-                                if let Some(first_album) = albums_array.first() {
-                                    if let Some(thumbnail_url) = first_album.get("strAlbumThumb") {
-                                        if let Some(url_str) = thumbnail_url.as_str() {
-                                            if !url_str.is_empty() && url_str != "null" {
-                                                match client.get(url_str)
-                                                    .header("User-Agent", "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
-                                                    .send()
-                                                    .await
-                                                {
-                                                    Ok(image_response) => {
-                                                        if image_response.status().is_success() {
-                                                            match image_response.bytes().await {
-                                                                Ok(image_data) => {
-                                                                    tx.send("Successfully fetched cover art from AudioDB".to_string())
-                                                                        .context("Failed to send AudioDB success message")?;
-                                                                    Ok(Some(image_data.to_vec()))
-                                                                }
-                                                                Err(e) => {
-                                                                    tx.send(format!("Failed to download AudioDB cover art: {}", e))
-                                                                        .context("Failed to send AudioDB download error")?;
-                                                                    Ok(None)
-                                                                }
-                                                            }
-                                                        } else {
-                                                            tx.send("AudioDB cover art download failed".to_string())
-                                                                .context("Failed to send AudioDB download failed")?;
-                                                            Ok(None)
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        tx.send(format!("Failed to fetch from AudioDB URL: {}", e))
-                                                            .context("Failed to send AudioDB URL error")?;
-                                                        Ok(None)
-                                                    }
-                                                }
-                                            } else {
-                                                tx.send("No cover art URL found in AudioDB response".to_string())
-                                                    .context("Failed to send no AudioDB URL message")?;
-                                                Ok(None)
-                                            }
-                                        } else {
-                                            tx.send("No cover art URL found in AudioDB response".to_string())
-                                                .context("Failed to send no AudioDB URL message")?;
-                                            Ok(None)
-                                        }
-                                    } else {
-                                        tx.send("No cover art found in AudioDB response".to_string())
-                                            .context("Failed to send no AudioDB cover art")?;
-                                        Ok(None)
-                                    }
-                                } else {
-                                    tx.send("No albums found in AudioDB response".to_string())
-                                        .context("Failed to send no AudioDB albums")?;
-                                    Ok(None)
-                                }
-                            } else {
-                                tx.send("Invalid AudioDB response format".to_string())
-                                    .context("Failed to send invalid AudioDB format")?;
-                                Ok(None)
-                            }
-                        } else {
-                            tx.send("No album data in AudioDB response".to_string())
-                                .context("Failed to send no AudioDB album data")?;
-                            Ok(None)
-                        }
-                    }
-                    Err(e) => {
-                        tx.send(format!("Failed to parse AudioDB response: {}", e))
-                            .context("Failed to send AudioDB parse error")?;
-                        Ok(None)
-                    }
-                }
-            } else {
-                tx.send(format!("AudioDB request failed (status: {})", response.status()))
-                    .context("Failed to send AudioDB request failed")?;
-                Ok(None)
-            }
-        }
-        Err(e) => {
-            tx.send(format!("Failed to fetch from AudioDB: {}", e))
-                .context("Failed to send AudioDB fetch error")?;
-            Ok(None)
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use mfutil;
 
     // Test-specific implementation to avoid actual hardware access
     async fn read_cd_from_device_test(_device: &str) -> Result<CdInfo> {
@@ -847,16 +688,16 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename_basic() {
-        assert_eq!(sanitize_filename("normal_name"), "normal_name");
-        assert_eq!(sanitize_filename("file with spaces"), "file with spaces");
-        assert_eq!(sanitize_filename("file/with\\bad:chars*"), "file_with_bad_chars_");
+        assert_eq!(mfutil::utils::sanitize_filename("normal_name"), "normal_name");
+        assert_eq!(mfutil::utils::sanitize_filename("file with spaces"), "file with spaces");
+        assert_eq!(mfutil::utils::sanitize_filename("file/with\\bad:chars*"), "file_with_bad_chars_");
     }
 
     #[test]
     fn test_sanitize_filename_edge_cases() {
-        assert_eq!(sanitize_filename(""), "");
-        assert_eq!(sanitize_filename("   "), "");
-        assert_eq!(sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
+        assert_eq!(mfutil::utils::sanitize_filename(""), "");
+        assert_eq!(mfutil::utils::sanitize_filename("   "), "");
+        assert_eq!(mfutil::utils::sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
     }
 
 
@@ -869,8 +710,8 @@ mod tests {
 
         // Test that the functions can be called (even if they return None for test data)
         let rt = tokio::runtime::Runtime::new().unwrap();
-        let result1 = rt.block_on(fetch_musicbrainz_cover_art("test_release_id", &tx));
-        let result2 = rt.block_on(fetch_audiodb_cover_art("Test Artist", "Test Album", &tx));
+        let result1 = rt.block_on(cover_art::fetch_musicbrainz_cover_art("test_release_id", &tx));
+        let result2 = rt.block_on(cover_art::fetch_audiodb_cover_art("Test Artist", "Test Album", &tx));
 
         // These should return Ok(None) since we're using test data
         assert!(result1.is_ok());

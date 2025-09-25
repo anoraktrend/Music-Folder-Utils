@@ -1,10 +1,11 @@
 use anyhow::Result;
-use lofty::{self, file::TaggedFileExt, tag::ItemKey};
 use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use walkdir::WalkDir;
+use mfutil::utils;
+use mfutil::metadata;
 
 /// Organize music files into proper artist/album structure
 pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Result<()> {
@@ -86,7 +87,7 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
     let mut total_files = 0;
 
     for file_path in files_to_move {
-        let (artist, album) = extract_artist_album_from_file(&file_path).map_err(|e| {
+        let (artist, album) = metadata::extract_artist_album_from_file(&file_path).map_err(|e| {
             anyhow::anyhow!(
                 "Failed to extract metadata from '{}': {}",
                 file_path.display(),
@@ -95,8 +96,8 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
         })?;
 
         // Create a clean filename for the group key
-        let clean_artist = sanitize_filename(&artist);
-        let clean_album = sanitize_filename(&album);
+        let clean_artist = utils::sanitize_filename(&artist);
+        let clean_album = utils::sanitize_filename(&album);
 
         file_groups
             .entry((clean_artist.clone(), clean_album.clone()))
@@ -193,136 +194,6 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
     Ok(())
 }
 
-/// Extract artist and album information from a music file
-fn extract_artist_album_from_file(file_path: &Path) -> Result<(String, String)> {
-    match lofty::read_from_path(file_path) {
-        Ok(tagged_file) => {
-            let tags = tagged_file.tags();
-            if let Some(tag) = tags.first() {
-                // Try multiple artist fields in order of preference
-                let artist = tag
-                    .get_string(&ItemKey::AlbumArtist)
-                    .or_else(|| tag.get_string(&ItemKey::TrackArtist))
-                    .unwrap_or_else(|| {
-                        // Try to extract from filename if no artist metadata
-                        file_path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("Unknown Artist")
-                            .split(" - ")
-                            .next()
-                            .unwrap_or("Unknown Artist")
-                    })
-                    .to_string();
-
-                // Try multiple album fields in order of preference
-                let album = tag
-                    .get_string(&ItemKey::AlbumTitle)
-                    .unwrap_or_else(|| {
-                        // Try to extract from parent directory name
-                        file_path
-                            .parent()
-                            .and_then(|p| p.file_name())
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("Unknown Album")
-                    })
-                    .to_string();
-
-                Ok((artist, album))
-            } else {
-                // Fallback to path-based extraction
-                extract_from_path(file_path)
-            }
-        }
-        Err(_) => {
-            // Fallback to path-based extraction
-            extract_from_path(file_path)
-        }
-    }
-}
-
-/// Extract artist and album from file path when tags are not available
-fn extract_from_path(file_path: &Path) -> Result<(String, String)> {
-    let parent = file_path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("File '{}' has no parent directory", file_path.display()))?;
-
-    // Try to extract album from parent directory name
-    let album = parent
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|name| {
-            // Clean up common album directory naming patterns
-            let cleaned = name
-                .replace(['_', '-'], " ")
-                .split_whitespace()
-                .filter(|word| {
-                    // Filter out common non-album words
-                    let lower = word.to_lowercase();
-                    !matches!(
-                        lower.as_str(),
-                        "album" | "music" | "songs" | "tracks" | "collection"
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            if cleaned.trim().is_empty() {
-                "Unknown Album".to_string()
-            } else {
-                cleaned.trim().to_string()
-            }
-        })
-        .unwrap_or_else(|| "Unknown Album".to_string());
-
-    let grandparent = parent
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Album directory '{}' has no parent", parent.display()))?;
-
-    // Try to extract artist from grandparent directory name
-    let artist = grandparent
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|name| {
-            // Clean up common artist directory naming patterns
-            let cleaned = name
-                .replace(['_', '-'], " ")
-                .split_whitespace()
-                .filter(|word| {
-                    // Filter out common non-artist words
-                    let lower = word.to_lowercase();
-                    !matches!(
-                        lower.as_str(),
-                        "artist" | "band" | "group" | "music" | "collection"
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            if cleaned.trim().is_empty() {
-                "Various Artists".to_string()
-            } else {
-                cleaned.trim().to_string()
-            }
-        })
-        .unwrap_or_else(|| "Various Artists".to_string());
-
-    Ok((artist, album))
-}
-
-/// Sanitize filename to be safe for filesystem
-fn sanitize_filename(name: &str) -> String {
-    // Replace problematic characters with safe alternatives
-    name.chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            c if c.is_control() => '_',
-            c => c,
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
 
 #[cfg(test)]
 mod tests {
@@ -371,9 +242,9 @@ mod tests {
     #[test]
     fn test_sanitize_filename_basic() -> Result<()> {
         // Test basic sanitization
-        assert_eq!(sanitize_filename("normal_name"), "normal_name");
-        assert_eq!(sanitize_filename("file with spaces"), "file with spaces");
-        assert_eq!(sanitize_filename("file/with\\bad:chars*"), "file_with_bad_chars_");
+        assert_eq!(utils::sanitize_filename("normal_name"), "normal_name");
+        assert_eq!(utils::sanitize_filename("file with spaces"), "file with spaces");
+        assert_eq!(utils::sanitize_filename("file/with'\'bad:chars*"), "file_with_bad_chars_");
 
         Ok(())
     }
@@ -381,9 +252,9 @@ mod tests {
     #[test]
     fn test_sanitize_filename_edge_cases() -> Result<()> {
         // Test edge cases
-        assert_eq!(sanitize_filename(""), "");
-        assert_eq!(sanitize_filename("   "), "");
-        assert_eq!(sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
+        assert_eq!(utils::sanitize_filename(""), "");
+        assert_eq!(utils::sanitize_filename("   "), "");
+        assert_eq!(utils::sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
 
         Ok(())
     }
@@ -398,7 +269,7 @@ mod tests {
         // Create the directory structure
         fs::create_dir_all(&album_dir)?;
 
-        let (artist, album) = extract_from_path(&file_path)?;
+        let (artist, album) = metadata::extract_from_path(&file_path)?;
 
         // The function filters out common words like "artist" and "album"
         assert_eq!(artist, "Test"); // "Test Artist" -> "Test" (removes "artist")
@@ -417,7 +288,7 @@ mod tests {
         // Create the directory structure
         fs::create_dir_all(&album_dir)?;
 
-        let (artist, album) = extract_from_path(&file_path)?;
+        let (artist, album) = metadata::extract_from_path(&file_path)?;
 
         // These names should not be filtered out
         assert_eq!(artist, "Metallica");
@@ -432,7 +303,7 @@ mod tests {
         let file_path = temp_dir.path().join("track.mp3");
 
         // File with no parent directory - this should actually work
-        let result = extract_from_path(&file_path);
+        let result = metadata::extract_from_path(&file_path);
 
         // The function should handle this case gracefully
         assert!(result.is_ok());

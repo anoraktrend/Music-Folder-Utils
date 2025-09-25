@@ -4,9 +4,12 @@
 //! It provides reusable components for MusicBrainz integration, cover art fetching, file processing,
 //! and other utilities used by the various command modules.
 
+pub mod audio;
 pub mod cover_art;
+pub mod directory;
 pub mod musicbrainz;
 pub mod metadata;
+pub mod progress;
 pub mod tagging;
 pub mod utils;
 

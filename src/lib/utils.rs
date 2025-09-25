@@ -1,3 +1,8 @@
+use anyhow::Result;
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
+use crate::audio;
+
 /// Sanitize filename to be safe for filesystem
 pub fn sanitize_filename(name: &str) -> String {
     // Replace problematic characters with safe alternatives
@@ -11,18 +16,6 @@ pub fn sanitize_filename(name: &str) -> String {
         .trim()
         .to_string()
 }
-
-use anyhow::Result;
-use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
-
-// Extension definitions used throughout the module
-const ID3_EXTENSIONS: &[&str] = &["mp3", "aac"];
-const MP4_EXTENSIONS: &[&str] = &["m4a", "m4b", "m4p", "alac", "mp4"];
-const VORBIS_EXTENSIONS: &[&str] = &["flac", "ogg", "oga", "opus", "spx"];
-const APE_EXTENSIONS: &[&str] = &["ape", "mpc", "wv"];
-const AIFF_EXTENSIONS: &[&str] = &["aiff", "aif"];
-const WAV_EXTENSIONS: &[&str] = &["wav"];
 
 /// Get all album paths from the music directory
 pub fn get_all_album_paths(music_dir: &str) -> Result<Vec<PathBuf>> {
@@ -69,26 +62,8 @@ pub fn get_all_track_paths(music_dir: &str) -> Result<Vec<PathBuf>> {
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            if entry.path().is_file() {
-                let ext = entry
-                    .path()
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| e.to_lowercase())
-                    .unwrap_or_default();
-
-                let all_extensions: Vec<_> = ID3_EXTENSIONS
-                    .iter()
-                    .chain(MP4_EXTENSIONS.iter())
-                    .chain(VORBIS_EXTENSIONS.iter())
-                    .chain(APE_EXTENSIONS.iter())
-                    .chain(AIFF_EXTENSIONS.iter())
-                    .chain(WAV_EXTENSIONS.iter())
-                    .collect();
-
-                if all_extensions.iter().any(|&&e| e == ext) {
-                    track_paths.push(entry.path().to_path_buf());
-                }
+            if entry.path().is_file() && audio::is_audio_file(entry.path()) {
+                track_paths.push(entry.path().to_path_buf());
             }
         }
     }
@@ -107,4 +82,37 @@ pub fn get_all_folder_paths(music_dir: &str) -> Result<Vec<PathBuf>> {
     }
 
     Ok(folder_paths)
+}
+
+/// Scan a directory for audio files and return statistics
+pub struct FileScanResult {
+    pub audio_files: Vec<PathBuf>,
+    pub files_scanned: usize,
+    pub files_skipped: usize,
+}
+
+pub fn scan_directory_for_audio_files(dir_path: &Path) -> Result<FileScanResult> {
+    let mut audio_files = Vec::new();
+    let mut files_scanned = 0;
+    let mut files_skipped = 0;
+
+    for entry in WalkDir::new(dir_path).into_iter().filter_map(|e| e.ok()) {
+        if !entry.path().is_file() {
+            continue;
+        }
+
+        files_scanned += 1;
+
+        if audio::is_audio_file(entry.path()) {
+            audio_files.push(entry.path().to_path_buf());
+        } else {
+            files_skipped += 1;
+        }
+    }
+
+    Ok(FileScanResult {
+        audio_files,
+        files_scanned,
+        files_skipped,
+    })
 }
