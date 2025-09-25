@@ -2,6 +2,7 @@ use anyhow::Result;
 use lofty::{self, file::TaggedFileExt, tag::ItemKey};
 use rustc_hash::FxHashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use walkdir::WalkDir;
@@ -725,4 +726,250 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use std::fs;
+
+    #[test]
+    fn test_organize_music_library_creates_directories() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+
+        // Test that it creates the directory structure (without dry_run)
+        let result = organize_music_library(music_root.to_str().unwrap(), false, true);
+
+        assert!(result.is_ok());
+
+        // Check that directories were created
+        let artists_dir = music_root.join("Artists");
+        assert!(artists_dir.exists());
+        assert!(artists_dir.is_dir());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_organize_music_library_with_existing_structure() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+
+        // Create existing structure
+        fs::create_dir_all(&music_root)?;
+        fs::create_dir(&artists_dir)?;
+
+        // Test that it doesn't fail with existing structure
+        let result = organize_music_library(music_root.to_str().unwrap(), false, true);
+
+        assert!(result.is_ok());
+        assert!(artists_dir.exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reorganize_misplaced_files_no_artists_dir() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+
+        // Test that it fails when Artists directory doesn't exist
+        let result = reorganize_misplaced_files(music_root.to_str().unwrap(), false, true);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Artists directory"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reorganize_misplaced_files_with_no_misplaced_files() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+
+        // Create proper structure with no misplaced files
+        fs::create_dir_all(&artists_dir)?;
+        let artist_dir = artists_dir.join("TestArtist");
+        fs::create_dir(&artist_dir)?;
+        let album_dir = artist_dir.join("TestAlbum");
+        fs::create_dir(&album_dir)?;
+        fs::File::create(album_dir.join("track.mp3"))?.write_all(b"audio")?;
+
+        // Test that it succeeds with no misplaced files
+        let result = reorganize_misplaced_files(music_root.to_str().unwrap(), false, true);
+
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reorganize_misplaced_files_dry_run() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+
+        // Create proper structure
+        fs::create_dir_all(&artists_dir)?;
+
+        // Create a misplaced file
+        let misplaced_file = music_root.join("misplaced.mp3");
+        fs::File::create(&misplaced_file)?.write_all(b"audio")?;
+
+        // Test dry run - should not actually move files
+        let result = reorganize_misplaced_files(music_root.to_str().unwrap(), true, true);
+
+        assert!(result.is_ok());
+        assert!(misplaced_file.exists()); // File should still be in original location
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_and_organize_files_nonexistent_import_path() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let nonexistent_import = temp_dir.path().join("NonexistentImport");
+
+        // Test that it fails with nonexistent import path
+        let result = import_and_organize_files(nonexistent_import.to_str().unwrap(), music_root.to_str().unwrap(), false, true);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_and_organize_files_import_path_not_directory() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let import_file = temp_dir.path().join("import.txt");
+
+        // Create a file instead of directory
+        fs::File::create(&import_file)?.write_all(b"not a directory")?;
+
+        // Test that it fails when import path is not a directory
+        let result = import_and_organize_files(import_file.to_str().unwrap(), music_root.to_str().unwrap(), false, true);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("is not a directory"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_and_organize_files_empty_import_directory() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let empty_import = temp_dir.path().join("EmptyImport");
+
+        // Create empty import directory
+        fs::create_dir(&empty_import)?;
+
+        // Test that it succeeds with empty import directory
+        let result = import_and_organize_files(empty_import.to_str().unwrap(), music_root.to_str().unwrap(), false, true);
+
+        assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_import_and_organize_files_dry_run() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let import_dir = temp_dir.path().join("Import");
+
+        // Create import directory with audio file
+        fs::create_dir(&import_dir)?;
+        fs::File::create(import_dir.join("test.mp3"))?.write_all(b"audio")?;
+
+        // Test dry run - should not actually import files
+        let result = import_and_organize_files(import_dir.to_str().unwrap(), music_root.to_str().unwrap(), true, true);
+
+        assert!(result.is_ok());
+
+        // Check that no files were actually moved
+        let artists_dir = music_root.join("Artists");
+        assert!(!artists_dir.exists()); // Should not create directories in dry run
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sanitize_filename_basic() -> Result<()> {
+        // Test basic sanitization
+        assert_eq!(sanitize_filename("normal_name"), "normal_name");
+        assert_eq!(sanitize_filename("file with spaces"), "file with spaces");
+        assert_eq!(sanitize_filename("file/with\\bad:chars*"), "file_with_bad_chars_");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sanitize_filename_edge_cases() -> Result<()> {
+        // Test edge cases
+        assert_eq!(sanitize_filename(""), "");
+        assert_eq!(sanitize_filename("   "), "");
+        assert_eq!(sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_extract_from_path_valid_structure() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let artist_dir = temp_dir.path().join("Test Artist");
+        let album_dir = artist_dir.join("Test Album");
+        let file_path = album_dir.join("track.mp3");
+
+        // Create the directory structure
+        fs::create_dir_all(&album_dir)?;
+
+        let (artist, album) = extract_from_path(&file_path)?;
+
+        // The function filters out common words like "artist" and "album"
+        assert_eq!(artist, "Test"); // "Test Artist" -> "Test" (removes "artist")
+        assert_eq!(album, "Test"); // "Test Album" -> "Test" (removes "album")
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_extract_from_path_with_problematic_names() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let artist_dir = temp_dir.path().join("Metallica");
+        let album_dir = artist_dir.join("Master of Puppets");
+        let file_path = album_dir.join("track.mp3");
+
+        // Create the directory structure
+        fs::create_dir_all(&album_dir)?;
+
+        let (artist, album) = extract_from_path(&file_path)?;
+
+        // These names should not be filtered out
+        assert_eq!(artist, "Metallica");
+        assert_eq!(album, "Master of Puppets");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_extract_from_path_missing_parent() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let file_path = temp_dir.path().join("track.mp3");
+
+        // File with no parent directory - this should actually work
+        let result = extract_from_path(&file_path);
+
+        // The function should handle this case gracefully
+        assert!(result.is_ok());
+
+        Ok(())
+    }
 }

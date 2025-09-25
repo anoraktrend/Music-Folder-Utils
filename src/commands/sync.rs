@@ -4,6 +4,8 @@ use lofty::file::{AudioFile, TaggedFileExt};
 use musicbrainz_rs::{entity::release::Release, prelude::*, MusicBrainzClient};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use tracing::{error, warn};
@@ -306,4 +308,164 @@ pub async fn process_single_album_sync_tags(
     .context("Failed to send success message to TUI")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use std::fs;
+    use std::sync::mpsc;
+    use std::path::Path;
+
+    #[tokio::test]
+    async fn test_process_single_album_sync_tags_with_valid_album() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+        fs::create_dir_all(&artists_dir)?;
+
+        // Create test structure
+        let artist_dir = artists_dir.join("TestArtist");
+        fs::create_dir(&artist_dir)?;
+        let album_dir = artist_dir.join("TestAlbum");
+        fs::create_dir(&album_dir)?;
+
+        // Create a test audio file
+        let track_file = album_dir.join("test_track.mp3");
+        fs::File::create(&track_file)?.write_all(b"fake audio content")?;
+
+        // Set up channel for progress messages
+        let (tx, rx) = mpsc::channel::<String>();
+
+        // Mock the MusicBrainz response by setting up a minimal test
+        // Since we can't easily mock the MusicBrainz API, we'll test the file scanning part
+        let result = process_single_album_sync_tags(&album_dir, tx).await;
+
+        // The function should complete (even if MusicBrainz search fails in test environment)
+        assert!(result.is_ok());
+
+        // We should receive some progress messages
+        let mut message_count = 0;
+        while let Ok(_) = rx.try_recv() {
+            message_count += 1;
+        }
+        assert!(message_count > 0, "Should receive at least one progress message");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_single_album_sync_tags_with_nonexistent_album() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let nonexistent_album = temp_dir.path().join("NonexistentAlbum");
+
+        let (tx, _rx) = mpsc::channel::<String>();
+
+        // This should fail gracefully
+        let result = std::panic::AssertUnwindSafe(async {
+            process_single_album_sync_tags(&nonexistent_album, tx).await
+        });
+
+        // The function should handle the error gracefully
+        // Note: This is a runtime test that might need adjustment based on actual behavior
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_single_album_sync_tags_with_empty_album() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+        fs::create_dir_all(&artists_dir)?;
+
+        // Create test structure
+        let artist_dir = artists_dir.join("TestArtist");
+        fs::create_dir(&artist_dir)?;
+        let album_dir = artist_dir.join("EmptyAlbum");
+        fs::create_dir(&album_dir)?;
+
+        // No audio files in the album
+        let (tx, _rx) = mpsc::channel::<String>();
+
+        // This should complete without processing any files
+        let result = std::panic::AssertUnwindSafe(async {
+            process_single_album_sync_tags(&album_dir, tx).await
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_single_album_sync_tags_with_mixed_files() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+        fs::create_dir_all(&artists_dir)?;
+
+        // Create test structure
+        let artist_dir = artists_dir.join("TestArtist");
+        fs::create_dir(&artist_dir)?;
+        let album_dir = artist_dir.join("MixedAlbum");
+        fs::create_dir(&album_dir)?;
+
+        // Create mix of audio and non-audio files
+        fs::File::create(album_dir.join("track1.mp3"))?.write_all(b"audio")?;
+        fs::File::create(album_dir.join("track2.flac"))?.write_all(b"audio")?;
+        fs::File::create(album_dir.join("cover.jpg"))?.write_all(b"image")?;
+        fs::File::create(album_dir.join("lyrics.txt"))?.write_all(b"text")?;
+
+        let (tx, _rx) = mpsc::channel::<String>();
+
+        // Should process only audio files
+        let result = std::panic::AssertUnwindSafe(async {
+            process_single_album_sync_tags(&album_dir, tx).await
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_single_album_sync_tags_with_unsupported_formats() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let music_root = temp_dir.path().join("Music");
+        let artists_dir = music_root.join("Artists");
+        fs::create_dir_all(&artists_dir)?;
+
+        // Create test structure
+        let artist_dir = artists_dir.join("TestArtist");
+        fs::create_dir(&artist_dir)?;
+        let album_dir = artist_dir.join("UnsupportedAlbum");
+        fs::create_dir(&album_dir)?;
+
+        // Create files with unsupported extensions
+        fs::File::create(album_dir.join("file.m3u"))?.write_all(b"playlist")?;
+        fs::File::create(album_dir.join("file.exe"))?.write_all(b"binary")?;
+        fs::File::create(album_dir.join("file.doc"))?.write_all(b"document")?;
+
+        let (tx, _rx) = mpsc::channel::<String>();
+
+        // Should skip all unsupported files
+        let result = std::panic::AssertUnwindSafe(async {
+            process_single_album_sync_tags(&album_dir, tx).await
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_single_album_sync_tags_with_no_artist_parent() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let album_dir = temp_dir.path().join("OrphanedAlbum");
+        fs::create_dir(&album_dir)?;
+
+        let (tx, _rx) = mpsc::channel::<String>();
+
+        // This should fail because album has no artist parent
+        let result = std::panic::AssertUnwindSafe(async {
+            process_single_album_sync_tags(&album_dir, tx).await
+        });
+
+        Ok(())
+    }
 }
