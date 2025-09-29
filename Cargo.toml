@@ -53,3 +53,4 @@ cdparanoia-sys = "0.1.0"
 flacenc = "0.5.0"
 serde = { version = "1.0", features = ["derive"] }
 tempfile = "3.10.0"
+crossterm = "0.29.0"

@@ -7,9 +7,9 @@
 pub mod audio;
 pub mod cover_art;
 pub mod directory;
-pub mod musicbrainz;
 pub mod metadata;
+pub mod musicbrainz;
 pub mod progress;
 pub mod tagging;
 pub mod utils;
-
+pub mod cd;

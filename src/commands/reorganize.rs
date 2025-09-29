@@ -6,6 +6,7 @@ use tracing::info;
 use walkdir::WalkDir;
 use mfutil::utils;
 use mfutil::metadata;
+use mfutil::audio;
 
 /// Reorganize files that are not in their correct artist/album structure
 /// This function finds files that are misplaced and moves them to their proper locations
@@ -42,14 +43,7 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
 
         // Only process audio files
         if path.is_file() {
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-                .unwrap_or_default();
-
-            let audio_extensions = ["mp3", "flac", "m4a", "ogg", "aac", "wma", "wav", "aiff"];
-            if audio_extensions.contains(&ext.as_str()) {
+            if audio::is_audio_file(path) {
                 files_to_move.push(path.to_path_buf());
             }
         }

@@ -3,7 +3,6 @@ use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
-use walkdir::WalkDir;
 use mfutil::utils;
 use mfutil::metadata;
 
@@ -50,35 +49,18 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
     }
 
     // Find all audio files in the music directory
-    let mut files_to_move = Vec::new();
-    let mut unknown_files = Vec::new();
+    let scan_result = utils::scan_directory_for_audio_files(music_path)?;
+    let files_to_move = scan_result.audio_files;
+    let unknown_files_count = scan_result.files_skipped;
 
-    for entry in WalkDir::new(music_path).into_iter().filter_map(|e| e.ok()) {
-        if entry.path().is_file() {
-            let path = entry.path();
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-                .unwrap_or_default();
-
-            // Check if it's an audio file
-            let audio_extensions = ["mp3", "flac", "m4a", "ogg", "aac", "wma", "wav", "aiff"];
-            if audio_extensions.contains(&ext.as_str()) {
-                files_to_move.push(path.to_path_buf());
-            } else {
-                unknown_files.push(path.to_path_buf());
-            }
-        }
-    }
 
     if !quiet {
         info!("✅ Found {} audio files to organize", files_to_move.len());
     }
-    if !quiet && !unknown_files.is_empty() {
+    if !quiet && unknown_files_count > 0 {
         info!(
             "ℹ️  Found {} non-audio files (will be left in place)",
-            unknown_files.len()
+            unknown_files_count
         );
     }
 

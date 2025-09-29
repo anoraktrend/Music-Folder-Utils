@@ -174,17 +174,6 @@ pub async fn process_single_album_sync_tags(
     Ok(())
 }
 
-/// Sync all tags with MusicBrainz and fetch cover art for all albums
-pub async fn sync_all_tags_with_cover_art(music_dir: &str, tx: mpsc::Sender<String>) -> Result<()> {
-    let album_paths = utils::get_all_album_paths(music_dir)?;
-
-    for album_path in album_paths.iter() {
-        process_single_album_sync_tags(album_path, tx.clone()).await?;
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
