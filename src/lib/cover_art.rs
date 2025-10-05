@@ -1,20 +1,30 @@
 use anyhow::{Context, Result};
-use std::path::Path;
-use std::sync::mpsc;
 use reqwest;
 use serde_json;
+use std::path::Path;
+use std::sync::mpsc;
 use urlencoding;
 
 /// Fetch cover art from MusicBrainz Cover Art Archive
-pub async fn fetch_musicbrainz_cover_art(release_id: &str, tx: &mpsc::Sender<String>) -> Result<Option<Vec<u8>>> {
-    tx.send(format!("Fetching cover art from MusicBrainz for release: {}", release_id))
-        .context("Failed to send cover art fetch message")?;
+pub async fn fetch_musicbrainz_cover_art(
+    release_id: &str,
+    tx: &mpsc::Sender<String>,
+) -> Result<Option<Vec<u8>>> {
+    tx.send(format!(
+        "Fetching cover art from MusicBrainz for release: {}",
+        release_id
+    ))
+    .context("Failed to send cover art fetch message")?;
 
     let cover_art_url = format!("https://coverartarchive.org/release/{}/front", release_id);
     let client = reqwest::Client::new();
 
-    match client.get(&cover_art_url)
-        .header("User-Agent", "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
+    match client
+        .get(&cover_art_url)
+        .header(
+            "User-Agent",
+            "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)",
+        )
         .send()
         .await
     {
@@ -33,8 +43,11 @@ pub async fn fetch_musicbrainz_cover_art(release_id: &str, tx: &mpsc::Sender<Str
                     }
                 }
             } else {
-                tx.send(format!("Cover art not available from MusicBrainz (status: {})", response.status()))
-                    .context("Failed to send cover art unavailable message")?;
+                tx.send(format!(
+                    "Cover art not available from MusicBrainz (status: {})",
+                    response.status()
+                ))
+                .context("Failed to send cover art unavailable message")?;
                 Ok(None)
             }
         }
@@ -47,9 +60,16 @@ pub async fn fetch_musicbrainz_cover_art(release_id: &str, tx: &mpsc::Sender<Str
 }
 
 /// Fetch cover art from AudioDB as fallback
-pub async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sender<String>) -> Result<Option<Vec<u8>>> {
-    tx.send(format!("Trying AudioDB for cover art: {} - {}", artist, album))
-        .context("Failed to send AudioDB cover art message")?;
+pub async fn fetch_audiodb_cover_art(
+    artist: &str,
+    album: &str,
+    tx: &mpsc::Sender<String>,
+) -> Result<Option<Vec<u8>>> {
+    tx.send(format!(
+        "Trying AudioDB for cover art: {} - {}",
+        artist, album
+    ))
+    .context("Failed to send AudioDB cover art message")?;
 
     let encoded_artist = urlencoding::encode(artist);
     let encoded_album = urlencoding::encode(album);
@@ -60,8 +80,12 @@ pub async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sende
 
     let client = reqwest::Client::new();
 
-    match client.get(&audiodb_url)
-        .header("User-Agent", "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
+    match client
+        .get(&audiodb_url)
+        .header(
+            "User-Agent",
+            "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)",
+        )
         .send()
         .await
     {
@@ -107,18 +131,26 @@ pub async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sende
                                                     }
                                                 }
                                             } else {
-                                                tx.send("No cover art URL found in AudioDB response".to_string())
-                                                    .context("Failed to send no AudioDB URL message")?;
+                                                tx.send(
+                                                    "No cover art URL found in AudioDB response"
+                                                        .to_string(),
+                                                )
+                                                .context("Failed to send no AudioDB URL message")?;
                                                 Ok(None)
                                             }
                                         } else {
-                                            tx.send("No cover art URL found in AudioDB response".to_string())
-                                                .context("Failed to send no AudioDB URL message")?;
+                                            tx.send(
+                                                "No cover art URL found in AudioDB response"
+                                                    .to_string(),
+                                            )
+                                            .context("Failed to send no AudioDB URL message")?;
                                             Ok(None)
                                         }
                                     } else {
-                                        tx.send("No cover art found in AudioDB response".to_string())
-                                            .context("Failed to send no AudioDB cover art")?;
+                                        tx.send(
+                                            "No cover art found in AudioDB response".to_string(),
+                                        )
+                                        .context("Failed to send no AudioDB cover art")?;
                                         Ok(None)
                                     }
                                 } else {
@@ -144,8 +176,11 @@ pub async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sende
                     }
                 }
             } else {
-                tx.send(format!("AudioDB request failed (status: {})", response.status()))
-                    .context("Failed to send AudioDB request failed")?;
+                tx.send(format!(
+                    "AudioDB request failed (status: {})",
+                    response.status()
+                ))
+                .context("Failed to send AudioDB request failed")?;
                 Ok(None)
             }
         }
@@ -169,29 +204,50 @@ pub async fn save_cover_art_to_album(
     if let Ok(Some(cover_art)) = fetch_musicbrainz_cover_art(release_id, tx).await {
         let cover_art_path = album_path.join("cover.jpg");
         if let Err(e) = std::fs::write(&cover_art_path, &cover_art) {
-            tracing::warn!("Failed to save MusicBrainz cover art to {:?}: {}", cover_art_path, e);
+            tracing::warn!(
+                "Failed to save MusicBrainz cover art to {:?}: {}",
+                cover_art_path,
+                e
+            );
             // Try AudioDB as fallback
             if let Ok(Some(audiodb_cover_art)) = fetch_audiodb_cover_art(artist, album, tx).await {
                 if let Err(e) = std::fs::write(&cover_art_path, &audiodb_cover_art) {
-                    tracing::warn!("Failed to save AudioDB cover art to {:?}: {}", cover_art_path, e);
+                    tracing::warn!(
+                        "Failed to save AudioDB cover art to {:?}: {}",
+                        cover_art_path,
+                        e
+                    );
                 } else {
-                    tx.send(format!("Saved AudioDB cover art to: {}", cover_art_path.display()))
-                        .context("Failed to send AudioDB cover art save message")?;
+                    tx.send(format!(
+                        "Saved AudioDB cover art to: {}",
+                        cover_art_path.display()
+                    ))
+                    .context("Failed to send AudioDB cover art save message")?;
                 }
             }
         } else {
-            tx.send(format!("Saved MusicBrainz cover art to: {}", cover_art_path.display()))
-                .context("Failed to send MusicBrainz cover art save message")?;
+            tx.send(format!(
+                "Saved MusicBrainz cover art to: {}",
+                cover_art_path.display()
+            ))
+            .context("Failed to send MusicBrainz cover art save message")?;
         }
     } else {
         // Try AudioDB as fallback
         if let Ok(Some(cover_art)) = fetch_audiodb_cover_art(artist, album, tx).await {
             let cover_art_path = album_path.join("cover.jpg");
             if let Err(e) = std::fs::write(&cover_art_path, &cover_art) {
-                tracing::warn!("Failed to save AudioDB cover art to {:?}: {}", cover_art_path, e);
+                tracing::warn!(
+                    "Failed to save AudioDB cover art to {:?}: {}",
+                    cover_art_path,
+                    e
+                );
             } else {
-                tx.send(format!("Saved AudioDB cover art to: {}", cover_art_path.display()))
-                    .context("Failed to send AudioDB cover art save message")?;
+                tx.send(format!(
+                    "Saved AudioDB cover art to: {}",
+                    cover_art_path.display()
+                ))
+                .context("Failed to send AudioDB cover art save message")?;
             }
         } else {
             tx.send("No cover art found from any source".to_string())

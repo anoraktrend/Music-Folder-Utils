@@ -1,0 +1,56 @@
+.TH MFUTIL-ALL 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-all \- Run all music library management tasks
+.SH SYNOPSIS
+.B mfutil all
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+The
+.B all
+subcommand runs a comprehensive suite of music library management tasks
+in sequence. It performs syncing, organization, artwork processing, and
+symlink creation to fully optimize your music collection.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the music directory path (default: ~/Music)
+.TP
+.BR \-s ", " \-\-skip " " \fISUBCOMMANDS\fR
+Comma-separated list of subcommands to skip (available: sync,art,albums,tracks,organize,reorganize,import)
+.TP
+.B \-h, \-\-help
+Print help information
+.SH OPERATION SEQUENCE
+.TP
+1. Sync tags with MusicBrainz
+.TP
+2. Extract/process artist album art
+.TP
+3. Set folder icons
+.TP
+4. Extract album art
+.TP
+5. Create album symlinks
+.TP
+6. Create track symlinks
+.TP
+7. Organize music library
+.SH EXAMPLES
+.TP
+Run all tasks on default music directory:
+.B mfutil all
+.TP
+Run all tasks except sync and art:
+.B mfutil all --skip sync,art
+.TP
+Run all tasks on custom directory:
+.B mfutil all --music-dir /path/to/music
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-sync (1),
+.BR mfutil-art (1),
+.BR mfutil-albums (1),
+.BR mfutil-tracks (1)
+.SH NOTES
+This command can take significant time for large music libraries.
+Use --skip to customize the operations performed.

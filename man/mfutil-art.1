@@ -1,0 +1,52 @@
+.TH MFUTIL-ART 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-art \- Extract and manage album art for your music library
+.SH SYNOPSIS
+.B mfutil art
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+The
+.B art
+subcommand extracts embedded album artwork from music files and downloads
+missing cover art from online sources like MusicBrainz and AudioDB. It also
+creates folder icons for easy visual identification of albums in file managers.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the music directory path (default: ~/Music)
+.TP
+.B \-h, \-\-help
+Print help information
+.SH FEATURES
+.TP
+Extract embedded artwork from audio files (FLAC, MP3, etc.)
+.TP
+Download missing cover art from MusicBrainz
+.TP
+Fallback to AudioDB for additional cover sources
+.TP
+Set folder icons for visual album identification
+.TP
+Create artist image placeholders when art is unavailable
+.SH ENVIRONMENT
+.TP
+.B AUDIODB_API_KEY
+API key for AudioDB cover art service
+.TP
+.B PEXELS_API_KEY
+API key for Pexels image service (for placeholders)
+.SH FILES
+Extracted artwork is saved as cover.jpg in album directories
+.SH EXAMPLES
+.TP
+Process album art for default music directory:
+.B mfutil art
+.TP
+Process album art for custom directory:
+.B mfutil art --music-dir /path/to/music
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-sync (1),
+.BR mfutil-all (1)
+.SH NOTES
+This command requires internet access to download cover art from online services.

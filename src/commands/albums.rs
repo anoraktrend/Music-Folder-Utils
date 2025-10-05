@@ -21,8 +21,12 @@ pub fn process_single_album_symlink(album_path: &Path, music_dir: &str) -> Resul
     }
 
     // Ensure the album path has a valid parent (artist directory)
-    let artist_path = album_path.parent()
-        .ok_or_else(|| anyhow::anyhow!("Album path '{}' has no parent directory", album_path.display()))?;
+    let artist_path = album_path.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Album path '{}' has no parent directory",
+            album_path.display()
+        )
+    })?;
 
     // Ensure the artist directory is directly under Artists
     if artist_path.parent() != Some(&artists_path) {
@@ -54,13 +58,25 @@ pub fn process_single_album_symlink(album_path: &Path, music_dir: &str) -> Resul
     }
 
     // Get artist and album names safely
-    let artist_name = artist_path.file_name()
+    let artist_name = artist_path
+        .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| anyhow::anyhow!("Invalid artist directory name in path '{}'", artist_path.display()))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid artist directory name in path '{}'",
+                artist_path.display()
+            )
+        })?;
 
-    let album_name = album_path.file_name()
+    let album_name = album_path
+        .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| anyhow::anyhow!("Invalid album directory name in path '{}'", album_path.display()))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid album directory name in path '{}'",
+                album_path.display()
+            )
+        })?;
 
     let link_name = albums_path.join(format!("{} - {}", artist_name, album_name));
 
@@ -78,8 +94,13 @@ pub fn process_single_album_symlink(album_path: &Path, music_dir: &str) -> Resul
     }
 
     // Create the symlink
-    symlink(&album_path, &link_name)
-        .with_context(|| format!("Failed to create symlink from '{}' to '{}'", link_name.display(), album_path.display()))?;
+    symlink(&album_path, &link_name).with_context(|| {
+        format!(
+            "Failed to create symlink from '{}' to '{}'",
+            link_name.display(),
+            album_path.display()
+        )
+    })?;
 
     Ok(())
 }
@@ -87,10 +108,10 @@ pub fn process_single_album_symlink(album_path: &Path, music_dir: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
     use std::io::Write;
     use std::os::unix::fs::symlink;
+    use tempfile::TempDir;
 
     #[test]
     fn test_process_single_album_symlink_valid_structure() -> Result<()> {
@@ -142,7 +163,10 @@ mod tests {
         let result = process_single_album_symlink(&invalid_album, music_root.to_str().unwrap());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not within the expected Artists directory"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not within the expected Artists directory"));
 
         Ok(())
     }

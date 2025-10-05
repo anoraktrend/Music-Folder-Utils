@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
+use mfutil::{cover_art, musicbrainz, progress, tagging, utils};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use tracing::{error, warn};
-use mfutil::{musicbrainz, cover_art, tagging, utils, progress};
 
 /// Comprehensive function to update all tags on a file using MusicBrainz data
 pub async fn process_single_album_sync_tags(
@@ -51,8 +51,11 @@ pub async fn process_single_album_sync_tags(
         .fold(
             FxHashMap::default,
             |mut groups: FxHashMap<(String, String), Vec<PathBuf>>, path: PathBuf| {
-                let (artist, album) =
-                    tagging::extract_artist_album_from_path_with_fallback(&path, &folder_artist, &folder_album);
+                let (artist, album) = tagging::extract_artist_album_from_path_with_fallback(
+                    &path,
+                    &folder_artist,
+                    &folder_album,
+                );
                 groups.entry((artist, album)).or_default().push(path);
                 groups
             },
@@ -81,7 +84,9 @@ pub async fn process_single_album_sync_tags(
 
     // Pre-fetch all MusicBrainz release data for album groups
     for (artist, album) in album_groups.keys() {
-        if let std::collections::hash_map::Entry::Vacant(e) = release_cache.entry((artist.clone(), album.clone())) {
+        if let std::collections::hash_map::Entry::Vacant(e) =
+            release_cache.entry((artist.clone(), album.clone()))
+        {
             // Use library function for MusicBrainz lookup
             match musicbrainz::lookup_musicbrainz_release(artist, album, &tx).await {
                 Ok(Some((_, _, release_id))) => {
@@ -135,12 +140,16 @@ pub async fn process_single_album_sync_tags(
             paths.into_par_iter().for_each_with(tx.clone(), |tx, path| {
                 let result = {
                     // Calculate relative path from album directory
-                    let relative_path = path.strip_prefix(&album_path).unwrap_or(&path).to_string_lossy().to_string();
+                    let relative_path = path
+                        .strip_prefix(&album_path)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
                     tagging::process_music_file_with_musicbrainz(
                         &path,
                         release_id,
                         &relative_path,
-                        tx
+                        tx,
                     )
                 };
                 if let Err(e) = result {
@@ -153,14 +162,14 @@ pub async fn process_single_album_sync_tags(
                 .context("Failed to send album summary")?;
 
             // Fetch and save cover art for this album (don't use spawn to avoid borrowing issues)
-            if let Err(e) = cover_art::save_cover_art_to_album(
-                &album_path,
-                release_id,
-                artist,
-                album,
-                &tx
-            ).await {
-                warn!("Failed to fetch cover art for {} - {}: {}", artist, album, e);
+            if let Err(e) =
+                cover_art::save_cover_art_to_album(&album_path, release_id, artist, album, &tx)
+                    .await
+            {
+                warn!(
+                    "Failed to fetch cover art for {} - {}: {}",
+                    artist, album, e
+                );
             }
         } else {
             progress::send_album_skipped(&tx, artist, album)
@@ -213,7 +222,10 @@ mod tests {
         while rx.try_recv().is_ok() {
             message_count += 1;
         }
-        assert!(message_count > 0, "Should receive at least one progress message");
+        assert!(
+            message_count > 0,
+            "Should receive at least one progress message"
+        );
 
         Ok(())
     }

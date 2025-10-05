@@ -1,16 +1,19 @@
 use anyhow::{Context, Result};
-use discid::DiscId;
 use musicbrainz_rs::{entity::release::Release, prelude::*, ApiRequest, MusicBrainzClient};
 
-use std::path::Path;
-use std::sync::mpsc;
-use lofty::{self, file::TaggedFileExt, tag::ItemKey};
-use tracing::warn;
+use crate::utils;
 use flacenc::component::BitRepr;
 use flacenc::error::Verify;
-use cdparanoia;
+use lofty::{self, file::TaggedFileExt, tag::ItemKey};
 use serde_json;
-use crate::utils;
+use std::path::Path;
+use std::sync::mpsc;
+use tracing::warn;
+
+#[cfg(feature = "cd-ripping")]
+use cdparanoia;
+#[cfg(feature = "cd-ripping")]
+use discid::DiscId;
 
 /// Information about a CD track
 #[derive(Debug, Clone)]
@@ -34,6 +37,7 @@ pub struct CdInfo {
 }
 
 /// Read CD Table of Contents and calculate Disc ID using discid
+#[cfg(feature = "cd-ripping")]
 pub async fn read_cd_from_device(device: &str, tx: mpsc::Sender<String>) -> Result<CdInfo> {
     tx.send(format!("Reading TOC from device: {}", device))
         .context("Failed to send TOC reading message")?;
@@ -50,13 +54,16 @@ pub async fn read_cd_from_device(device: &str, tx: mpsc::Sender<String>) -> Resu
 
     tx.send(format!("Calculated Disc ID: {}", disc_id_str))
         .context("Failed to send Disc ID message")?;
-    tx.send(format!("Debug: First track: {}, Last track: {}, Sectors: {}",
-                   first_track, last_track, sectors))
-        .context("Failed to send debug info")?;
+    tx.send(format!(
+        "Debug: First track: {}, Last track: {}, Sectors: {}",
+        first_track, last_track, sectors
+    ))
+    .context("Failed to send debug info")?;
 
     // Use cdparanoia to read the TOC and track info
-    let device_cstr = std::ffi::CString::new(device).context("Failed to create CString for device")?;
-    let drive = cdparanoia::CdromDrive::identify(&device_cstr, cdparanoia::Verbosity::PrintIt)
+    let device_cstr =
+        std::ffi::CString::new(device).context("Failed to create CString for device")?;
+    let drive = cdparanoia::CdromDrive::identify(&device_cstr, cdparanoia::Verbosity::LogIt)
         .context("Failed to identify CD-ROM drive")?;
     drive.open().context("Failed to open CD-ROM drive")?;
 
@@ -64,13 +71,23 @@ pub async fn read_cd_from_device(device: &str, tx: mpsc::Sender<String>) -> Resu
     let mut tracks = Vec::new();
 
     for i in 1..=num_tracks {
-        if drive.track_audiop(i).context(format!("Failed to check if track {} is audio", i))? {
-            let first_sector = drive.track_first_sector(i).context(format!("Failed to get first sector of track {}", i))?;
-            let last_sector = drive.track_last_sector(i).context(format!("Failed to get last sector of track {}", i))?;
+        if drive
+            .track_audiop(i)
+            .context(format!("Failed to check if track {} is audio", i))?
+        {
+            let first_sector = drive
+                .track_first_sector(i)
+                .context(format!("Failed to get first sector of track {}", i))?;
+            let last_sector = drive
+                .track_last_sector(i)
+                .context(format!("Failed to get last sector of track {}", i))?;
 
             // Ensure last_sector >= first_sector to avoid overflow
             if last_sector < first_sector {
-                warn!("Invalid sector range for track {}: first={} last={}", i, first_sector, last_sector);
+                warn!(
+                    "Invalid sector range for track {}: first={} last={}",
+                    i, first_sector, last_sector
+                );
                 continue; // Skip this track
             }
 
@@ -104,16 +121,21 @@ pub async fn read_cd_from_device(device: &str, tx: mpsc::Sender<String>) -> Resu
     })
 }
 
+#[cfg(not(feature = "cd-ripping"))]
+pub async fn read_cd_from_device(_device: &str, tx: mpsc::Sender<String>) -> Result<CdInfo> {
+    tx.send("CD ripping feature is not enabled. Cannot read CD from device.".to_string())
+        .context("Failed to send message about disabled CD ripping feature")?;
+    Err(anyhow::anyhow!("CD ripping feature is not enabled."))
+}
+
 /// Look up CD information from MusicBrainz
-pub async fn lookup_cd_info(
-    cd_info: &CdInfo,
-    tx: mpsc::Sender<String>,
-) -> Result<CdInfo> {
+pub async fn lookup_cd_info(cd_info: &CdInfo, tx: mpsc::Sender<String>) -> Result<CdInfo> {
     tx.send("Looking up CD information from MusicBrainz...".to_string())
         .context("Failed to send MusicBrainz lookup message")?;
 
     let mut client = MusicBrainzClient::default();
-    client.set_user_agent("mfutil/0.1.1 ( https://github.com/anoraktrend/music-folder-utils )")
+    client
+        .set_user_agent("mfutil/0.1.1 ( https://github.com/anoraktrend/music-folder-utils )")
         .context("Failed to set user agent")?;
 
     // First try to lookup by discid using the direct discid endpoint
@@ -121,7 +143,10 @@ pub async fn lookup_cd_info(
         .context("Failed to send discid lookup message")?;
 
     // Use raw API request to lookup release by discid
-    let discid_url = format!("https://musicbrainz.org/ws/2/discid/{}?fmt=json&inc=artists+release-groups+recordings", cd_info.disc_id);
+    let discid_url = format!(
+        "https://musicbrainz.org/ws/2/discid/{}?fmt=json&inc=artists+release-groups+recordings",
+        cd_info.disc_id
+    );
     let request = ApiRequest::new(discid_url);
 
     match request.get_json(&client).await {
@@ -132,19 +157,24 @@ pub async fn lookup_cd_info(
                     if let Some(release_id) = release_data.get("id").and_then(|id| id.as_str()) {
                         // We already have the full release data from the discid response
                         // Extract artist and title from the discid response
-                        let artist_credit = release_data.get("artist-credit")
+                        let artist_credit = release_data
+                            .get("artist-credit")
                             .and_then(|ac| ac.as_array())
                             .and_then(|ac| ac.first())
                             .and_then(|a| a.get("name"))
                             .and_then(|n| n.as_str())
                             .unwrap_or("Unknown Artist");
 
-                        let title = release_data.get("title")
+                        let title = release_data
+                            .get("title")
                             .and_then(|t| t.as_str())
                             .unwrap_or("Unknown Album");
 
-                        tx.send(format!("Found release: {} - {} ({})", artist_credit, title, release_id))
-                            .context("Failed to send release found message")?;
+                        tx.send(format!(
+                            "Found release: {} - {} ({})",
+                            artist_credit, title, release_id
+                        ))
+                        .context("Failed to send release found message")?;
 
                         // Create CdInfo from the discid response data with full track information
                         let cd_info = cd_info_from_discid_response(release_data, cd_info)?;
@@ -180,11 +210,22 @@ pub async fn lookup_cd_info(
             match Release::search(query).execute_with_client(&client).await {
                 Ok(search_result) => {
                     if let Some(release) = search_result.entities.into_iter().next() {
-                        let artist_credit = release.artist_credit.as_ref()
-                            .map(|credits| credits.iter().map(|c| c.name.clone()).collect::<Vec<_>>().join(" & "))
+                        let artist_credit = release
+                            .artist_credit
+                            .as_ref()
+                            .map(|credits| {
+                                credits
+                                    .iter()
+                                    .map(|c| c.name.clone())
+                                    .collect::<Vec<_>>()
+                                    .join(" & ")
+                            })
                             .unwrap_or_else(|| "Unknown Artist".to_string());
-                        tx.send(format!("Found release: {} - {} ({})", artist_credit, release.title, release.id))
-                            .context("Failed to send release found message")?;
+                        tx.send(format!(
+                            "Found release: {} - {} ({})",
+                            artist_credit, release.title, release.id
+                        ))
+                        .context("Failed to send release found message")?;
 
                         let cd_info = CdInfo {
                             disc_id: cd_info.disc_id.clone(),
@@ -217,19 +258,25 @@ pub async fn lookup_cd_info(
 }
 
 /// Create CdInfo from a MusicBrainz discid response
-fn cd_info_from_discid_response(release_data: &serde_json::Value, cd_info: &CdInfo) -> Result<CdInfo> {
-    let release_id = release_data.get("id")
+fn cd_info_from_discid_response(
+    release_data: &serde_json::Value,
+    cd_info: &CdInfo,
+) -> Result<CdInfo> {
+    let release_id = release_data
+        .get("id")
         .and_then(|id| id.as_str())
         .unwrap_or("");
 
-    let artist = release_data.get("artist-credit")
+    let artist = release_data
+        .get("artist-credit")
         .and_then(|ac| ac.as_array())
         .and_then(|ac| ac.first())
         .and_then(|a| a.get("name"))
         .and_then(|n| n.as_str())
         .unwrap_or("Unknown Artist");
 
-    let title = release_data.get("title")
+    let title = release_data
+        .get("title")
         .and_then(|t| t.as_str())
         .unwrap_or("Unknown Album");
 
@@ -239,79 +286,100 @@ fn cd_info_from_discid_response(release_data: &serde_json::Value, cd_info: &CdIn
             if let Some(first_medium) = media_array.first() {
                 if let Some(tracks) = first_medium.get("tracks") {
                     if let Some(tracks_array) = tracks.as_array() {
-                        tracks_array.iter().enumerate().map(|(i, track_data)| {
-                            let number = track_data.get("number")
-                                .and_then(|n| n.as_str())
-                                .and_then(|n| n.parse::<u32>().ok())
-                                .unwrap_or((i + 1) as u32);
+                        tracks_array
+                            .iter()
+                            .enumerate()
+                            .map(|(i, track_data)| {
+                                let number = track_data
+                                    .get("number")
+                                    .and_then(|n| n.as_str())
+                                    .and_then(|n| n.parse::<u32>().ok())
+                                    .unwrap_or((i + 1) as u32);
 
-                            let default_title = format!("Track {:02}", number);
-                            let track_title = track_data.get("title")
-                                .and_then(|t| t.as_str())
-                                .unwrap_or(&default_title);
+                                let default_title = format!("Track {:02}", number);
+                                let track_title = track_data
+                                    .get("title")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or(&default_title);
 
-                            let duration = track_data.get("length")
-                                .and_then(|l| l.as_u64())
-                                .map(|l| l / 1000) // Convert from milliseconds to seconds
-                                .unwrap_or(0);
+                                let duration = track_data
+                                    .get("length")
+                                    .and_then(|l| l.as_u64())
+                                    .map(|l| l / 1000) // Convert from milliseconds to seconds
+                                    .unwrap_or(0);
 
-                            CdTrack {
-                                number,
-                                title: track_title.to_string(),
-                                artist: artist.to_string(),
-                                duration,
-                                filename: format!("{:02} {}.flac", number, utils::sanitize_filename(track_title)),
-                            }
-                        }).collect()
+                                CdTrack {
+                                    number,
+                                    title: track_title.to_string(),
+                                    artist: artist.to_string(),
+                                    duration,
+                                    filename: format!(
+                                        "{:02} {}.flac",
+                                        number,
+                                        utils::sanitize_filename(track_title)
+                                    ),
+                                }
+                            })
+                            .collect()
                     } else {
                         // Fallback: create basic tracks if parsing fails
-                        (1..=11).map(|i| CdTrack {
+                        (1..=11)
+                            .map(|i| CdTrack {
+                                number: i,
+                                title: format!("Track {:02}", i),
+                                artist: artist.to_string(),
+                                duration: 180, // Default 3 minutes
+                                filename: format!("{:02} Track {:02}.flac", i, i),
+                            })
+                            .collect()
+                    }
+                } else {
+                    // Fallback: create basic tracks
+                    (1..=11)
+                        .map(|i| CdTrack {
                             number: i,
                             title: format!("Track {:02}", i),
                             artist: artist.to_string(),
                             duration: 180, // Default 3 minutes
                             filename: format!("{:02} Track {:02}.flac", i, i),
-                        }).collect()
-                    }
-                } else {
-                    // Fallback: create basic tracks
-                    (1..=11).map(|i| CdTrack {
+                        })
+                        .collect()
+                }
+            } else {
+                // Fallback: create basic tracks
+                (1..=11)
+                    .map(|i| CdTrack {
                         number: i,
                         title: format!("Track {:02}", i),
                         artist: artist.to_string(),
                         duration: 180, // Default 3 minutes
                         filename: format!("{:02} Track {:02}.flac", i, i),
-                    }).collect()
-                }
-            } else {
-                // Fallback: create basic tracks
-                (1..=11).map(|i| CdTrack {
+                    })
+                    .collect()
+            }
+        } else {
+            // Fallback: create basic tracks
+            (1..=11)
+                .map(|i| CdTrack {
                     number: i,
                     title: format!("Track {:02}", i),
                     artist: artist.to_string(),
                     duration: 180, // Default 3 minutes
                     filename: format!("{:02} Track {:02}.flac", i, i),
-                }).collect()
-            }
-        } else {
-            // Fallback: create basic tracks
-            (1..=11).map(|i| CdTrack {
+                })
+                .collect()
+        }
+    } else {
+        // Fallback: create basic tracks
+        (1..=11)
+            .map(|i| CdTrack {
                 number: i,
                 title: format!("Track {:02}", i),
                 artist: artist.to_string(),
                 duration: 180, // Default 3 minutes
                 filename: format!("{:02} Track {:02}.flac", i, i),
-            }).collect()
-        }
-    } else {
-        // Fallback: create basic tracks
-        (1..=11).map(|i| CdTrack {
-            number: i,
-            title: format!("Track {:02}", i),
-            artist: artist.to_string(),
-            duration: 180, // Default 3 minutes
-            filename: format!("{:02} Track {:02}.flac", i, i),
-        }).collect()
+            })
+            .collect()
     };
 
     let total_duration = tracks.iter().map(|t| t.duration).sum();
@@ -327,6 +395,7 @@ fn cd_info_from_discid_response(release_data: &serde_json::Value, cd_info: &CdIn
 }
 
 /// Import a single track from CD with actual CD reading
+#[cfg(feature = "cd-ripping")]
 pub async fn import_cd_track(
     device: &str,
     cd_info: &CdInfo,
@@ -343,27 +412,36 @@ pub async fn import_cd_track(
     // Read actual audio data from CD
     let audio_data = match read_cd_data(device, track, &tx).await {
         Ok(data) => {
-            tx.send(format!("Read {} bytes of audio data for track {}", data.len(), track.title))
-                .context("Failed to send audio read message")?;
+            tx.send(format!(
+                "Read {} bytes of audio data for track {}",
+                data.len(),
+                track.title
+            ))
+            .context("Failed to send audio read message")?;
             data
         }
         Err(e) => {
-            tx.send(format!("ERROR: Failed to read audio data for track {}: {}", track.title, e))
-                .context("Failed to send track read error message")?;
+            tx.send(format!(
+                "ERROR: Failed to read audio data for track {}: {}",
+                track.title, e
+            ))
+            .context("Failed to send track read error message")?;
             return Err(e);
         }
     };
 
     // Write the audio data to FLAC file
     match write_flac_file(&track_path, &audio_data, track, cover_art) {
-        Ok(())
-             => {
+        Ok(()) => {
             tx.send(format!("Encoded FLAC file: {}", track_path.display()))
                 .context("Failed to send FLAC encoding message")?;
         }
         Err(e) => {
-            tx.send(format!("ERROR: Failed to encode FLAC for track {}: {}", track.title, e))
-                .context("Failed to send FLAC encoding error message")?;
+            tx.send(format!(
+                "ERROR: Failed to encode FLAC for track {}: {}",
+                track.title, e
+            ))
+            .context("Failed to send FLAC encoding error message")?;
             return Err(e);
         }
     };
@@ -381,9 +459,28 @@ pub async fn import_cd_track(
     Ok(())
 }
 
+#[cfg(not(feature = "cd-ripping"))]
+pub async fn import_cd_track(
+    _device: &str,
+    _cd_info: &CdInfo,
+    track: &CdTrack,
+    _album_dir: &Path,
+    tx: mpsc::Sender<String>,
+    _cover_art: Option<&Vec<u8>>,
+) -> Result<()> {
+    tx.send(format!(
+        "CD ripping feature is not enabled. Skipping import of track: {}",
+        track.title
+    ))
+    .context("Failed to send message about disabled CD ripping feature")?;
+    Err(anyhow::anyhow!("CD ripping feature is not enabled."))
+}
+
 /// Read a single track's audio data from the CD using cdparanoia
+#[cfg(feature = "cd-ripping")]
 async fn read_cd_data(device: &str, track: &CdTrack, tx: &mpsc::Sender<String>) -> Result<Vec<u8>> {
-    let device_cstr = std::ffi::CString::new(device).context("Failed to create CString for device")?;
+    let device_cstr =
+        std::ffi::CString::new(device).context("Failed to create CString for device")?;
     let drive = cdparanoia::CdromDrive::identify(&device_cstr, cdparanoia::Verbosity::LogIt)
         .context("Failed to identify CD-ROM drive")?;
     drive.open().context("Failed to open CD-ROM drive")?;
@@ -393,7 +490,8 @@ async fn read_cd_data(device: &str, track: &CdTrack, tx: &mpsc::Sender<String>) 
     let first_sector = paranoia.drive().track_first_sector(track.number)?;
     let last_sector = paranoia.drive().track_last_sector(track.number)?;
 
-    paranoia.seek(std::io::SeekFrom::Start(first_sector))
+    paranoia
+        .seek(std::io::SeekFrom::Start(first_sector))
         .with_context(|| format!("Failed to seek to track {}", track.number))?;
 
     let mut samples_i16 = Vec::new();
@@ -404,25 +502,37 @@ async fn read_cd_data(device: &str, track: &CdTrack, tx: &mpsc::Sender<String>) 
         // The callback function is a C function pointer, we can pass a dummy one or a proper logger.
         // For now, using a simple extern "C" fn is sufficient.
         extern "C" fn callback(_: i64, _: i32) {}
-        let sector_ptr = unsafe { cdparanoia::cdparanoia_sys::paranoia_read(paranoia.as_raw(), Some(callback)) };
+        let sector_ptr =
+            unsafe { cdparanoia::cdparanoia_sys::paranoia_read(paranoia.as_raw(), Some(callback)) };
         if sector_ptr.is_null() {
             break; // End of read
         }
-        samples_i16.extend_from_slice(unsafe { std::slice::from_raw_parts(sector_ptr as *const i16, cdparanoia::CD_FRAMEWORDS as usize) });
+        samples_i16.extend_from_slice(unsafe {
+            std::slice::from_raw_parts(sector_ptr as *const i16, cdparanoia::CD_FRAMEWORDS as usize)
+        });
         sectors_read += 1;
 
         // Progress logging every 100 sectors through TUI
         if sectors_read % 100 == 0 {
             let progress = (sectors_read * 100) / total_sectors;
-            let _ = tx.send(format!("PROGRESS: Reading track {}: {}% complete ({} sectors)", track.number, progress, sectors_read));
+            let _ = tx.send(format!(
+                "PROGRESS: Reading track {}: {}% complete ({} sectors)",
+                track.number, progress, sectors_read
+            ));
         }
     }
 
     if sectors_read == 0 {
-        return Err(anyhow::anyhow!("Failed to read any audio data from track {}", track.number));
+        return Err(anyhow::anyhow!(
+            "Failed to read any audio data from track {}",
+            track.number
+        ));
     }
 
-    let _ = tx.send(format!("Successfully read {} sectors for track {}", sectors_read, track.number));
+    let _ = tx.send(format!(
+        "Successfully read {} sectors for track {}",
+        sectors_read, track.number
+    ));
 
     // Convert Vec<i16> to Vec<u8> for the rest of the pipeline
     let mut byte_buffer = Vec::with_capacity(samples_i16.len() * 2);
@@ -432,8 +542,27 @@ async fn read_cd_data(device: &str, track: &CdTrack, tx: &mpsc::Sender<String>) 
     Ok(byte_buffer)
 }
 
+#[cfg(not(feature = "cd-ripping"))]
+async fn read_cd_data(
+    _device: &str,
+    track: &CdTrack,
+    tx: &mpsc::Sender<String>,
+) -> Result<Vec<u8>> {
+    tx.send(format!(
+        "CD ripping feature is not enabled. Cannot read audio data for track: {}",
+        track.title
+    ))
+    .context("Failed to send message about disabled CD ripping feature")?;
+    Err(anyhow::anyhow!("CD ripping feature is not enabled."))
+}
+
 /// Write audio data to FLAC file with proper error handling and optional cover art embedding
-fn write_flac_file(path: &Path, audio_data: &[u8], _track: &CdTrack, cover_art: Option<&Vec<u8>>) -> Result<()> {
+fn write_flac_file(
+    path: &Path,
+    audio_data: &[u8],
+    _track: &CdTrack,
+    cover_art: Option<&Vec<u8>>,
+) -> Result<()> {
     // Convert audio data to i32 samples (interleaved stereo)
     let samples_i16: Vec<i16> = audio_data
         .chunks_exact(2)
@@ -451,18 +580,17 @@ fn write_flac_file(path: &Path, audio_data: &[u8], _track: &CdTrack, cover_art: 
         .map_err(|e| anyhow::anyhow!("Config verification failed: {:?}", e))?;
 
     // Create memory source from samples
-    let source = flacenc::source::MemSource::from_samples(
-        &samples, channels, bits_per_sample, sample_rate
-    );
+    let source =
+        flacenc::source::MemSource::from_samples(&samples, channels, bits_per_sample, sample_rate);
 
     // Encode with fixed block size
-    let flac_stream = flacenc::encode_with_fixed_block_size(
-        &config, source, config.block_size
-    ).map_err(|e| anyhow::anyhow!("FLAC encoding failed: {:?}", e))?;
+    let flac_stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+        .map_err(|e| anyhow::anyhow!("FLAC encoding failed: {:?}", e))?;
 
     // Write to byte sink
     let mut sink = flacenc::bitsink::ByteSink::new();
-    flac_stream.write(&mut sink)
+    flac_stream
+        .write(&mut sink)
         .map_err(|e| anyhow::anyhow!("Failed to write FLAC stream to sink: {:?}", e))?;
 
     // Write to file

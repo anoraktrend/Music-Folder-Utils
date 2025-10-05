@@ -3,6 +3,10 @@ use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
 
+pub fn get_default_music_dir() -> String {
+    std::env::var("XDG_MUSIC_DIR").unwrap_or_else(|_| shellexpand::tilde("~/Music").into_owned())
+}
+
 // Supported audio file extensions
 const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "m4a", "ogg"];
 
@@ -94,9 +98,9 @@ pub fn get_all_folder_paths(music_dir: &str) -> Result<Vec<std::path::PathBuf>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs;
     use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_get_all_album_paths() -> Result<()> {

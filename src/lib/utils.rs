@@ -1,14 +1,19 @@
+use crate::audio;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use crate::audio;
+use shellexpand;
+
+pub fn get_default_music_dir() -> String {
+    std::env::var("XDG_MUSIC_DIR").unwrap_or_else(|_| "~/Music".to_string())
+}
 
 /// Sanitize filename to be safe for filesystem
 pub fn sanitize_filename(name: &str) -> String {
     // Replace problematic characters with safe alternatives
     name.chars()
         .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\'' => '_',
             c if c.is_control() => '_',
             c => c,
         })
@@ -19,7 +24,8 @@ pub fn sanitize_filename(name: &str) -> String {
 
 /// Get all album paths from the music directory
 pub fn get_all_album_paths(music_dir: &str) -> Result<Vec<PathBuf>> {
-    let music_path = Path::new(music_dir);
+    let expanded_music_dir = shellexpand::tilde(music_dir).into_owned();
+    let music_path = Path::new(&expanded_music_dir);
     let artists_path = music_path.join("Artists");
 
     if !artists_path.exists() {
@@ -58,10 +64,7 @@ pub fn get_all_track_paths(music_dir: &str) -> Result<Vec<PathBuf>> {
     let album_paths = get_all_album_paths(music_dir)?;
 
     for album_path in album_paths {
-        for entry in WalkDir::new(&album_path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
+        for entry in WalkDir::new(&album_path).into_iter().filter_map(|e| e.ok()) {
             if entry.path().is_file() && audio::is_audio_file(entry.path()) {
                 track_paths.push(entry.path().to_path_buf());
             }

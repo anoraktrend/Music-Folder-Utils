@@ -1,0 +1,36 @@
+.TH MFUTIL-TRACKS 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-tracks \- Create symlinks to individual track files
+.SH SYNOPSIS
+.B mfutil tracks
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+The
+.B tracks
+subcommand creates symbolic links to individual music files in a dedicated
+Tracks folder for quick access to specific songs.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the music directory path (default: ~/Music)
+.TP
+.B \-h, \-\-help
+Print help information
+.SH OPERATION
+Creates symlinks in the Tracks subdirectory pointing to individual audio files
+from artist/album directories, providing a flat view of all tracks.
+.SH EXAMPLES
+.TP
+Create track symlinks for default music directory:
+.B mfutil tracks
+.TP
+Create track symlinks for custom directory:
+.B mfutil tracks --music-dir /path/to/music
+.SH FILES
+.TP
+.I ~/Music/Tracks/
+Directory containing track symlinks
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-albums (1),
+.BR mfutil-all (1)

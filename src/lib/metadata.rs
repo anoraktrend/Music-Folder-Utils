@@ -123,7 +123,12 @@ pub fn extract_from_path(file_path: &Path) -> Result<(String, String)> {
 }
 
 /// Set enhanced metadata with MusicBrainz release ID
-pub fn set_enhanced_metadata(file_path: &Path, artist: &str, album: &str, release_id: &str) -> Result<()> {
+pub fn set_enhanced_metadata(
+    file_path: &Path,
+    artist: &str,
+    album: &str,
+    release_id: &str,
+) -> Result<()> {
     match lofty::read_from_path(file_path) {
         Ok(mut tagged_file) => {
             if let Some(tag) = tagged_file.primary_tag_mut() {
@@ -137,12 +142,20 @@ pub fn set_enhanced_metadata(file_path: &Path, artist: &str, album: &str, releas
 
                 // Try to save the enhanced metadata
                 if let Err(e) = tagged_file.save_to_path(file_path, WriteOptions::default()) {
-                    warn!("Failed to save enhanced metadata for {}: {}", file_path.display(), e);
+                    warn!(
+                        "Failed to save enhanced metadata for {}: {}",
+                        file_path.display(),
+                        e
+                    );
                 }
             }
         }
         Err(e) => {
-            warn!("Could not read file for metadata enhancement: {} ({})", file_path.display(), e);
+            warn!(
+                "Could not read file for metadata enhancement: {} ({})",
+                file_path.display(),
+                e
+            );
         }
     }
 

@@ -1,12 +1,13 @@
 use anyhow::Result;
+use mfutil::audio;
+use mfutil::metadata;
+use mfutil::utils;
+use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use walkdir::WalkDir;
-use mfutil::utils;
-use mfutil::metadata;
-use mfutil::audio;
 
 /// Reorganize files that are not in their correct artist/album structure
 /// This function finds files that are misplaced and moves them to their proper locations
@@ -23,17 +24,13 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
     }
 
     if !quiet {
-        info!("🔍 Scanning for misplaced files to reorganize...");
+        info!("Scanning for misplaced files to reorganize...");
     }
 
     let mut files_to_move = Vec::new();
-    let mut total_processed = 0;
 
     // Walk through the music directory and find audio files
-    for entry in WalkDir::new(music_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(music_path).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
 
         // Skip the Artists directory and its contents - these are already organized
@@ -42,48 +39,36 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
         }
 
         // Only process audio files
-        if path.is_file() {
-            if audio::is_audio_file(path) {
-                files_to_move.push(path.to_path_buf());
-            }
+        if path.is_file() && audio::is_audio_file(path) {
+            files_to_move.push(path.to_path_buf());
         }
     }
 
     if files_to_move.is_empty() {
         if !quiet {
-            info!("✅ No misplaced files found. All files are already properly organized.");
+            info!("No misplaced files found. All files are already properly organized.");
         }
-        return Ok(())
+        return Ok(());
     }
 
     if !quiet {
-        info!("📁 Found {} misplaced files to reorganize", files_to_move.len());
+        info!(
+            "Found {} misplaced files to reorganize",
+            files_to_move.len()
+        );
     }
 
     // Group files by their correct artist/album based on metadata
-    let mut file_groups: FxHashMap<(String, String), Vec<PathBuf>> = FxHashMap::default();
-
-    for file_path in files_to_move {
-        total_processed += 1;
-
-        // Extract artist and album information from the file
-        let (artist, album) = metadata::extract_artist_album_from_file(&file_path).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to extract metadata from '{}': {}",
-                file_path.display(),
-                e
-            )
-        })?;
-
-        // Create clean names for directory creation
+    let processed_files: Vec<_> = files_to_move.into_par_iter().map(|file_path| {
+        let (artist, album) = metadata::extract_artist_album_from_file(&file_path)?;
         let clean_artist = utils::sanitize_filename(&artist);
         let clean_album = utils::sanitize_filename(&album);
+        Ok((file_path, clean_artist, clean_album))
+    }).collect::<Result<Vec<_>>>()?;
 
-        file_groups
-            .entry((clean_artist.clone(), clean_album.clone()))
-            .or_default()
-            .push(file_path.clone());
-
+    let mut file_groups: FxHashMap<(String, String), Vec<PathBuf>> = FxHashMap::default();
+    for (file_path, clean_artist, clean_album) in &processed_files {
+        file_groups.entry((clean_artist.clone(), clean_album.clone())).or_default().push(file_path.clone());
         if dry_run && !quiet {
             info!(
                 "Would reorganize: {} -> {} / {}",
@@ -93,10 +78,11 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
             );
         }
     }
+    let total_processed = processed_files.len();
 
     if !quiet && dry_run {
         info!(
-            "📊 Found {} unique artist/album combinations for {} files",
+            "Found {} unique artist/album combinations for {} files",
             file_groups.len(),
             total_processed
         );
@@ -111,10 +97,10 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
 
         if dry_run {
             if !quiet {
-                info!("📁 Would create directory: {}", album_path.display());
+                info!("Would create directory: {}", album_path.display());
                 for file in &files {
                     info!(
-                        "  📄 Would move: {} -> {}",
+                        "  Would move: {} -> {}",
                         file.display(),
                         album_path.display()
                     );
@@ -141,7 +127,7 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
                 if dest_path.exists() {
                     if !quiet {
                         info!(
-                            "⚠️  File already exists at destination, skipping: {} -> {}",
+                            "Warning: File already exists at destination, skipping: {} -> {}",
                             file_path.display(),
                             dest_path.display()
                         );
@@ -161,7 +147,7 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
 
                 if !quiet {
                     info!(
-                        "✅ Reorganized: {} -> {}",
+                        "Reorganized: {} -> {}",
                         file_path.display(),
                         dest_path.display()
                     );
@@ -171,28 +157,25 @@ pub fn reorganize_misplaced_files(music_dir: &str, dry_run: bool, quiet: bool) -
     }
 
     if dry_run && !quiet {
-        info!("\n🎭 This was a dry run. No files were actually moved.");
-        info!("💡 Run without --dry-run to perform the actual reorganization.");
+        info!("\nThis was a dry run. No files were actually moved.");
+        info!("Run without --dry-run to perform the actual reorganization.");
     } else if !quiet {
-        info!("\n🎉 File reorganization completed successfully!");
+        info!("\nFile reorganization completed successfully!");
         info!(
-            "   📁 Reorganized {} files into {} artist/album combinations",
-            total_processed,
-            total_groups
+            "   Reorganized {} files into {} artist/album combinations",
+            total_processed, total_groups
         );
     }
 
     Ok(())
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
     use std::io::Write;
+    use tempfile::TempDir;
 
     #[test]
     fn test_reorganize_misplaced_files_no_artists_dir() -> Result<()> {
@@ -203,7 +186,10 @@ mod tests {
         let result = reorganize_misplaced_files(music_root.to_str().unwrap(), false, true);
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Artists directory"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Artists directory"));
 
         Ok(())
     }
@@ -256,8 +242,14 @@ mod tests {
     fn test_sanitize_filename_basic() -> Result<()> {
         // Test basic sanitization
         assert_eq!(utils::sanitize_filename("normal_name"), "normal_name");
-        assert_eq!(utils::sanitize_filename("file with spaces"), "file with spaces");
-        assert_eq!(utils::sanitize_filename("file/with\\bad:chars*"), "file_with_bad_chars_");
+        assert_eq!(
+            utils::sanitize_filename("file with spaces"),
+            "file with spaces"
+        );
+        assert_eq!(
+            utils::sanitize_filename("file/with\\bad:chars*"),
+            "file_with_bad_chars_"
+        );
 
         Ok(())
     }
@@ -267,7 +259,10 @@ mod tests {
         // Test edge cases
         assert_eq!(utils::sanitize_filename(""), "");
         assert_eq!(utils::sanitize_filename("   "), "");
-        assert_eq!(utils::sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
+        assert_eq!(
+            utils::sanitize_filename("file\x00with\x01control\x02chars"),
+            "file_with_control_chars"
+        );
 
         Ok(())
     }

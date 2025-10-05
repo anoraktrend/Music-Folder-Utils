@@ -5,6 +5,7 @@
 //! and other utilities used by the various command modules.
 
 pub mod audio;
+pub mod cd;
 pub mod cover_art;
 pub mod directory;
 pub mod metadata;
@@ -12,4 +13,3 @@ pub mod musicbrainz;
 pub mod progress;
 pub mod tagging;
 pub mod utils;
-pub mod cd;

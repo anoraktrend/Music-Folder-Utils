@@ -1,0 +1,47 @@
+.TH MFUTIL-IMPORT 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-import \- Import music files from external directories
+.SH SYNOPSIS
+.B mfutil import
+.RI [ OPTIONS ]
+.I IMPORT_PATH
+.I [MUSIC_DIR]
+.SH DESCRIPTION
+The
+.B import
+subcommand imports music files from an external directory into your organized
+music library structure. It can optionally integrate with MusicBrainz for metadata
+enhancement and cover art fetching.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the destination music directory path (default: ~/Music)
+.TP
+.B \-\-dry-run
+Perform a dry run without actually importing files
+.TP
+.B \-h, \-\-help
+Print help information
+.SH ARGUMENTS
+.TP
+.I IMPORT_PATH
+Path to the directory containing files to import (required)
+.TP
+.I MUSIC_DIR
+Destination music directory (optional, defaults to ~/Music)
+.SH OPERATION
+Copies music files from the import path to the proper artist/album structure
+in your music library, organizing them by metadata.
+.SH EXAMPLES
+.TP
+Import files with dry run:
+.B mfutil import /path/to/new/music --dry-run
+.TP
+Import files to custom music directory:
+.B mfutil import /path/to/new/music /path/to/library
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-import-enhanced (1),
+.BR mfutil-organize (1)
+.SH NOTES
+Use --dry-run first to preview changes before actual import.

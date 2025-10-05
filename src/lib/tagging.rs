@@ -1,7 +1,7 @@
 use anyhow::Result;
+use musicbrainz_rs::entity::release::Release;
 use std::path::Path;
 use std::sync::mpsc;
-use musicbrainz_rs::entity::release::Release;
 
 /// Update MusicBrainz release ID on a music file
 pub fn update_musicbrainz_release_id(
@@ -12,12 +12,16 @@ pub fn update_musicbrainz_release_id(
     // Use the library function to set enhanced metadata
     match super::metadata::set_enhanced_metadata(file_path, "", "", release_id) {
         Ok(_) => {
-            tx.send(format!("COMPLETED: {} - MusicBrainz ID updated", file_path.display()))?;
+            tx.send(format!(
+                "COMPLETED: {} - MusicBrainz ID updated",
+                file_path.display()
+            ))?;
         }
         Err(e) => {
             tx.send(format!(
                 "COMPLETED: {} - Failed to save MusicBrainz ID: {}",
-                file_path.display(), e
+                file_path.display(),
+                e
             ))?;
         }
     }

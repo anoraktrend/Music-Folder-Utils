@@ -1,22 +1,33 @@
 use anyhow::{Context, Result};
-use lofty::{self, config::WriteOptions, file::{TaggedFileExt, AudioFile}, tag::ItemKey};
+use lofty::{
+    self,
+    config::WriteOptions,
+    file::{AudioFile, TaggedFileExt},
+    tag::ItemKey,
+};
+use mfutil::{self, audio, metadata, utils};
+use musicbrainz_rs::{entity::release::Release, prelude::*, MusicBrainzClient};
+use reqwest;
 use rustc_hash::FxHashMap;
+use serde_json;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn};
-use walkdir::WalkDir;
-use musicbrainz_rs::{entity::release::Release, prelude::*, MusicBrainzClient};
 use std::sync::mpsc;
-use serde_json;
-use reqwest;
+use tracing::{info, warn};
 use urlencoding;
-use mfutil::{audio, utils, metadata, self};
+use walkdir::WalkDir;
 /// Type alias for file grouping by artist, album, and release ID
-type FileGroupsByMetadata = FxHashMap<(String, String, Option<String>), Vec<(PathBuf, Option<String>)>>;
+type FileGroupsByMetadata =
+    FxHashMap<(String, String, Option<String>), Vec<(PathBuf, Option<String>)>>;
 
 /// Import files from an external directory into the music library
 /// This function copies files from the specified import path and organizes them
-pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bool, quiet: bool) -> Result<()> {
+pub fn import_and_organize_files(
+    import_path: &str,
+    music_dir: &str,
+    dry_run: bool,
+    quiet: bool,
+) -> Result<()> {
     let music_dir = shellexpand::tilde(music_dir).to_string();
     let music_path = Path::new(&music_dir);
     let artists_path = music_path.join("Artists");
@@ -24,11 +35,17 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
 
     // Validate import path exists
     if !import_path.exists() {
-        return Err(anyhow::anyhow!("Import path '{}' does not exist", import_path.display()));
+        return Err(anyhow::anyhow!(
+            "Import path '{}' does not exist",
+            import_path.display()
+        ));
     }
 
     if !import_path.is_dir() {
-        return Err(anyhow::anyhow!("Import path '{}' is not a directory", import_path.display()));
+        return Err(anyhow::anyhow!(
+            "Import path '{}' is not a directory",
+            import_path.display()
+        ));
     }
 
     // Ensure Artists directory exists
@@ -49,66 +66,69 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
     }
 
     if !quiet {
-        info!("🔍 Scanning import directory: {}", import_path.display());
+        info!("Scanning import directory: {}", import_path.display());
     }
 
     let mut files_to_import = Vec::new();
     let mut files_excluded = 0;
 
     // Find all audio files in the import directory
-    for entry in WalkDir::new(import_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(import_path).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
 
         // Only process audio files
         if path.is_file() && audio::is_audio_file(path) {
             // Check if file has proper metadata before including it
             match metadata::extract_artist_album_from_file(path) {
-                    Ok((artist, album)) => {
-                        // Only include files with meaningful metadata
-                        if !artist.is_empty() &&
-                           !album.is_empty() &&
-                           artist != "Unknown Artist" &&
-                           album != "Unknown Album" {
-                            files_to_import.push((path.to_path_buf(), artist, album));
-                        } else {
-                            files_excluded += 1;
-                            if !quiet {
-                                info!(
-                                    "⏭️  Excluding file without proper metadata: {} (Artist: '{}', Album: '{}')",
-                                    path.display(), artist, album
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
+                Ok((artist, album)) => {
+                    // Only include files with meaningful metadata
+                    if !artist.is_empty()
+                        && !album.is_empty()
+                        && artist != "Unknown Artist"
+                        && album != "Unknown Album"
+                    {
+                        files_to_import.push((path.to_path_buf(), artist, album));
+                    } else {
                         files_excluded += 1;
                         if !quiet {
                             info!(
-                                "⏭️  Excluding file with unreadable metadata: {} ({})",
-                                path.display(), e
-                            );
+                                    "Excluding file without proper metadata: {} (Artist: '{}', Album: '{}')",
+                                    path.display(), artist, album
+                                );
                         }
+                    }
+                }
+                Err(e) => {
+                    files_excluded += 1;
+                    if !quiet {
+                        info!(
+                            "Excluding file with unreadable metadata: {} ({})",
+                            path.display(),
+                            e
+                        );
                     }
                 }
             }
         }
+    }
 
     if files_to_import.is_empty() {
         if !quiet {
             if files_excluded > 0 {
-                info!("✅ No files with proper metadata found. {} files excluded due to insufficient metadata.", files_excluded);
+                info!("No files with proper metadata found. {} files excluded due to insufficient metadata.", files_excluded);
             } else {
-                info!("✅ No audio files found in import directory. Nothing to import.");
+                info!("No audio files found in import directory. Nothing to import.");
             }
         }
         return Ok(());
     }
 
     if !quiet {
-        info!("📁 Found {} files with proper metadata to import ({} excluded)", files_to_import.len(), files_excluded);
+        info!(
+            "Found {} files with proper metadata to import ({} excluded)",
+            files_to_import.len(),
+            files_excluded
+        );
     }
 
     // Group files by their correct artist/album based on metadata
@@ -137,7 +157,7 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
 
     if !quiet && dry_run {
         info!(
-            "📊 Found {} unique artist/album combinations for {} files",
+            "Found {} unique artist/album combinations for {} files",
             file_groups.len(),
             import_count
         );
@@ -152,10 +172,10 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
 
         if dry_run {
             if !quiet {
-                info!("📁 Would create directory: {}", album_path.display());
+                info!("Would create directory: {}", album_path.display());
                 for file in &files {
                     info!(
-                        "  📄 Would copy: {} -> {}",
+                        "  Would copy: {} -> {}",
                         file.display(),
                         album_path.display()
                     );
@@ -182,7 +202,7 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
                 if dest_path.exists() {
                     if !quiet {
                         info!(
-                            "⚠️  File already exists at destination, skipping: {} -> {}",
+                            "Warning: File already exists at destination, skipping: {} -> {}",
                             file_path.display(),
                             dest_path.display()
                         );
@@ -202,7 +222,7 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
 
                 if !quiet {
                     info!(
-                        "✅ Imported: {} -> {}",
+                        "Imported: {} -> {}",
                         file_path.display(),
                         dest_path.display()
                     );
@@ -212,12 +232,12 @@ pub fn import_and_organize_files(import_path: &str, music_dir: &str, dry_run: bo
     }
 
     if dry_run && !quiet {
-        info!("\n🎭 This was a dry run. No files were actually imported.");
-        info!("💡 Run without --dry-run to perform the actual import.");
+        info!("\nThis was a dry run. No files were actually imported.");
+        info!("Run without --dry-run to perform the actual import.");
     } else if !quiet {
-        info!("\n🎉 File import completed successfully!");
+        info!("\nFile import completed successfully!");
         info!(
-            "   📁 Imported {} files into {} artist/album combinations ({} files excluded)",
+            "   Imported {} files into {} artist/album combinations ({} files excluded)",
             import_count, total_groups, files_excluded
         );
     }
@@ -240,11 +260,17 @@ pub async fn import_and_organize_files_with_musicbrainz(
 
     // Validate import path exists
     if !import_path.exists() {
-        return Err(anyhow::anyhow!("Import path '{}' does not exist", import_path.display()));
+        return Err(anyhow::anyhow!(
+            "Import path '{}' does not exist",
+            import_path.display()
+        ));
     }
 
     if !import_path.is_dir() {
-        return Err(anyhow::anyhow!("Import path '{}' is not a directory", import_path.display()));
+        return Err(anyhow::anyhow!(
+            "Import path '{}' is not a directory",
+            import_path.display()
+        ));
     }
 
     // Ensure Artists directory exists
@@ -271,44 +297,47 @@ pub async fn import_and_organize_files_with_musicbrainz(
     let mut files_excluded = 0;
 
     // Find all audio files in the import directory
-    for entry in WalkDir::new(import_path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(import_path).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
 
         // Only process audio files
         if path.is_file() && audio::is_audio_file(path) {
             // Enhanced metadata extraction with MusicBrainz lookup
             match extract_and_enhance_metadata(path, &tx).await {
-                    Ok((artist, album, release_id)) => {
-                        // Only include files with meaningful metadata
-                        if !artist.is_empty() &&
-                           !album.is_empty() &&
-                           artist != "Unknown Artist" &&
-                           album != "Unknown Album" {
-                            files_to_import.push((path.to_path_buf(), artist, album, release_id));
-                        } else {
-                            files_excluded += 1;
-                            tx.send(format!("Excluding file without proper metadata: {} (Artist: '{}', Album: '{}')",
+                Ok((artist, album, release_id)) => {
+                    // Only include files with meaningful metadata
+                    if !artist.is_empty()
+                        && !album.is_empty()
+                        && artist != "Unknown Artist"
+                        && album != "Unknown Album"
+                    {
+                        files_to_import.push((path.to_path_buf(), artist, album, release_id));
+                    } else {
+                        files_excluded += 1;
+                        tx.send(format!("Excluding file without proper metadata: {} (Artist: '{}', Album: '{}')",
                                            path.display(), artist, album))
                                 .context("Failed to send exclusion message")?;
-                        }
                     }
-                    Err(e) => {
-                        files_excluded += 1;
-                        tx.send(format!("Excluding file with unreadable metadata: {} ({})",
-                                       path.display(), e))
-                            .context("Failed to send metadata error message")?;
-                    }
+                }
+                Err(e) => {
+                    files_excluded += 1;
+                    tx.send(format!(
+                        "Excluding file with unreadable metadata: {} ({})",
+                        path.display(),
+                        e
+                    ))
+                    .context("Failed to send metadata error message")?;
                 }
             }
         }
-
+    }
 
     if files_to_import.is_empty() {
-        tx.send(format!("No files with proper metadata found. {} files excluded due to insufficient metadata.", files_excluded))
-            .context("Failed to send completion message")?;
+        tx.send(format!(
+            "No files with proper metadata found. {} files excluded due to insufficient metadata.",
+            files_excluded
+        ))
+        .context("Failed to send completion message")?;
         return Ok(());
     }
 
@@ -325,19 +354,32 @@ pub async fn import_and_organize_files_with_musicbrainz(
         let clean_album = utils::sanitize_filename(&album);
 
         file_groups
-            .entry((clean_artist.clone(), clean_album.clone(), release_id.clone()))
+            .entry((
+                clean_artist.clone(),
+                clean_album.clone(),
+                release_id.clone(),
+            ))
             .or_default()
             .push((file_path.clone(), release_id.clone()));
 
         if dry_run && !quiet {
-            tx.send(format!("Would import: {} -> {} / {} (Release ID: {:?})",
-                           file_path.display(), clean_artist, clean_album, release_id))
-                .context("Failed to send dry run message")?;
+            tx.send(format!(
+                "Would import: {} -> {} / {} (Release ID: {:?})",
+                file_path.display(),
+                clean_artist,
+                clean_album,
+                release_id
+            ))
+            .context("Failed to send dry run message")?;
         }
     }
 
-    tx.send(format!("Found {} unique artist/album combinations for {} files", file_groups.len(), import_count))
-        .context("Failed to send group count message")?;
+    tx.send(format!(
+        "Found {} unique artist/album combinations for {} files",
+        file_groups.len(),
+        import_count
+    ))
+    .context("Failed to send group count message")?;
 
     // Import files to their correct locations with cover art fetching
     let total_groups = file_groups.len();
@@ -364,8 +406,12 @@ pub async fn import_and_organize_files_with_musicbrainz(
             tx.send(format!("Would create directory: {}", album_path.display()))
                 .context("Failed to send dry run directory message")?;
             for (file, _) in &files {
-                tx.send(format!("  Would copy: {} -> {}", file.display(), album_path.display()))
-                    .context("Failed to send dry run file message")?;
+                tx.send(format!(
+                    "  Would copy: {} -> {}",
+                    file.display(),
+                    album_path.display()
+                ))
+                .context("Failed to send dry run file message")?;
             }
         } else {
             // Create directories if they don't exist
@@ -386,9 +432,12 @@ pub async fn import_and_organize_files_with_musicbrainz(
 
                 // Only copy if the destination doesn't already exist
                 if dest_path.exists() {
-                    tx.send(format!("File already exists at destination, skipping: {} -> {}",
-                                   file_path.display(), dest_path.display()))
-                        .context("Failed to send skip message")?;
+                    tx.send(format!(
+                        "File already exists at destination, skipping: {} -> {}",
+                        file_path.display(),
+                        dest_path.display()
+                    ))
+                    .context("Failed to send skip message")?;
                     continue;
                 }
 
@@ -408,8 +457,12 @@ pub async fn import_and_organize_files_with_musicbrainz(
                         .with_context(|| format!("Failed to set metadata for: {:?}", dest_path))?;
                 }
 
-                tx.send(format!("COMPLETED: Imported {} -> {}", file_path.display(), dest_path.display()))
-                    .context("Failed to send completion message")?;
+                tx.send(format!(
+                    "COMPLETED: Imported {} -> {}",
+                    file_path.display(),
+                    dest_path.display()
+                ))
+                .context("Failed to send completion message")?;
             }
 
             // Save cover art if we fetched it
@@ -425,17 +478,20 @@ pub async fn import_and_organize_files_with_musicbrainz(
         }
     }
 
-    tx.send(format!("Successfully imported {} files into {} artist/album combinations",
-                   import_count, total_groups))
-        .context("Failed to send final completion message")?;
+    tx.send(format!(
+        "Successfully imported {} files into {} artist/album combinations",
+        import_count, total_groups
+    ))
+    .context("Failed to send final completion message")?;
 
     Ok(())
 }
 
-
-
 /// Enhanced metadata extraction with MusicBrainz lookup
-async fn extract_and_enhance_metadata(file_path: &Path, tx: &mpsc::Sender<String>) -> Result<(String, String, Option<String>)> {
+async fn extract_and_enhance_metadata(
+    file_path: &Path,
+    tx: &mpsc::Sender<String>,
+) -> Result<(String, String, Option<String>)> {
     // First try to extract from file metadata
     let (mut artist, mut album) = metadata::extract_artist_album_from_file(file_path)?;
 
@@ -443,21 +499,32 @@ async fn extract_and_enhance_metadata(file_path: &Path, tx: &mpsc::Sender<String
     if artist != "Unknown Artist" && album != "Unknown Album" {
         match lookup_musicbrainz_release(&artist, &album, tx).await {
             Ok(Some((enhanced_artist, enhanced_album, release_id))) => {
-                tx.send(format!("Enhanced metadata for {}: '{}' -> '{}' / '{}' -> '{}'",
-                               file_path.display(), artist, enhanced_artist, album, enhanced_album))
-                    .context("Failed to send enhancement message")?;
+                tx.send(format!(
+                    "Enhanced metadata for {}: '{}' -> '{}' / '{}' -> '{}'",
+                    file_path.display(),
+                    artist,
+                    enhanced_artist,
+                    album,
+                    enhanced_album
+                ))
+                .context("Failed to send enhancement message")?;
                 artist = enhanced_artist;
                 album = enhanced_album;
                 return Ok((artist, album, Some(release_id)));
             }
             Ok(None) => {
                 // No enhancement available, use original metadata
-                tx.send(format!("No MusicBrainz match found for {} - {} (using original metadata)",
-                               artist, album))
-                    .context("Failed to send no match message")?;
+                tx.send(format!(
+                    "No MusicBrainz match found for {} - {} (using original metadata)",
+                    artist, album
+                ))
+                .context("Failed to send no match message")?;
             }
             Err(e) => {
-                warn!("MusicBrainz lookup failed for {} - {}: {}", artist, album, e);
+                warn!(
+                    "MusicBrainz lookup failed for {} - {}: {}",
+                    artist, album, e
+                );
             }
         }
     }
@@ -466,12 +533,20 @@ async fn extract_and_enhance_metadata(file_path: &Path, tx: &mpsc::Sender<String
 }
 
 /// Look up release information from MusicBrainz
-async fn lookup_musicbrainz_release(artist: &str, album: &str, tx: &mpsc::Sender<String>) -> Result<Option<(String, String, String)>> {
-    tx.send(format!("Looking up MusicBrainz release: {} - {}", artist, album))
-        .context("Failed to send MusicBrainz lookup message")?;
+async fn lookup_musicbrainz_release(
+    artist: &str,
+    album: &str,
+    tx: &mpsc::Sender<String>,
+) -> Result<Option<(String, String, String)>> {
+    tx.send(format!(
+        "Looking up MusicBrainz release: {} - {}",
+        artist, album
+    ))
+    .context("Failed to send MusicBrainz lookup message")?;
 
     let mut client = MusicBrainzClient::default();
-    client.set_user_agent("mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
+    client
+        .set_user_agent("mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
         .context("Failed to set user agent")?;
 
     // Search for releases by artist and album
@@ -484,18 +559,31 @@ async fn lookup_musicbrainz_release(artist: &str, album: &str, tx: &mpsc::Sender
     match Release::search(query).execute_with_client(&client).await {
         Ok(search_result) => {
             if let Some(release) = search_result.entities.into_iter().next() {
-                let artist_credit = release.artist_credit.as_ref() 
-                    .map(|credits| credits.iter().map(|c| c.name.clone()).collect::<Vec<_>>().join(" & "))
+                let artist_credit = release
+                    .artist_credit
+                    .as_ref()
+                    .map(|credits| {
+                        credits
+                            .iter()
+                            .map(|c| c.name.clone())
+                            .collect::<Vec<_>>()
+                            .join(" & ")
+                    })
                     .unwrap_or_else(|| artist.to_string());
 
-                tx.send(format!("Found MusicBrainz release: {} - {} ({})",
-                               artist_credit, release.title, release.id))
-                    .context("Failed to send release found message")?;
+                tx.send(format!(
+                    "Found MusicBrainz release: {} - {} ({})",
+                    artist_credit, release.title, release.id
+                ))
+                .context("Failed to send release found message")?;
 
                 Ok(Some((artist_credit, release.title, release.id)))
             } else {
-                tx.send(format!("No MusicBrainz release found for {} - {}", artist, album))
-                    .context("Failed to send no release message")?;
+                tx.send(format!(
+                    "No MusicBrainz release found for {} - {}",
+                    artist, album
+                ))
+                .context("Failed to send no release message")?;
                 Ok(None)
             }
         }
@@ -507,15 +595,25 @@ async fn lookup_musicbrainz_release(artist: &str, album: &str, tx: &mpsc::Sender
 }
 
 /// Fetch cover art from MusicBrainz Cover Art Archive
-async fn fetch_musicbrainz_cover_art(release_id: &str, tx: &mpsc::Sender<String>) -> Result<Option<Vec<u8>>> {
-    tx.send(format!("Fetching cover art from MusicBrainz for release: {}", release_id))
-        .context("Failed to send cover art fetch message")?;
+async fn fetch_musicbrainz_cover_art(
+    release_id: &str,
+    tx: &mpsc::Sender<String>,
+) -> Result<Option<Vec<u8>>> {
+    tx.send(format!(
+        "Fetching cover art from MusicBrainz for release: {}",
+        release_id
+    ))
+    .context("Failed to send cover art fetch message")?;
 
     let cover_art_url = format!("https://coverartarchive.org/release/{}/front", release_id);
     let client = reqwest::Client::new();
 
-    match client.get(&cover_art_url)
-        .header("User-Agent", "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
+    match client
+        .get(&cover_art_url)
+        .header(
+            "User-Agent",
+            "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)",
+        )
         .send()
         .await
     {
@@ -534,8 +632,11 @@ async fn fetch_musicbrainz_cover_art(release_id: &str, tx: &mpsc::Sender<String>
                     }
                 }
             } else {
-                tx.send(format!("Cover art not available from MusicBrainz (status: {})", response.status()))
-                    .context("Failed to send cover art unavailable message")?;
+                tx.send(format!(
+                    "Cover art not available from MusicBrainz (status: {})",
+                    response.status()
+                ))
+                .context("Failed to send cover art unavailable message")?;
                 Ok(None)
             }
         }
@@ -548,9 +649,16 @@ async fn fetch_musicbrainz_cover_art(release_id: &str, tx: &mpsc::Sender<String>
 }
 
 /// Fetch cover art from AudioDB as fallback
-async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sender<String>) -> Result<Option<Vec<u8>>> {
-    tx.send(format!("Trying AudioDB for cover art: {} - {}", artist, album))
-        .context("Failed to send AudioDB cover art message")?;
+async fn fetch_audiodb_cover_art(
+    artist: &str,
+    album: &str,
+    tx: &mpsc::Sender<String>,
+) -> Result<Option<Vec<u8>>> {
+    tx.send(format!(
+        "Trying AudioDB for cover art: {} - {}",
+        artist, album
+    ))
+    .context("Failed to send AudioDB cover art message")?;
 
     let encoded_artist = urlencoding::encode(artist);
     let encoded_album = urlencoding::encode(album);
@@ -561,8 +669,12 @@ async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sender<St
 
     let client = reqwest::Client::new();
 
-    match client.get(&audiodb_url)
-        .header("User-Agent", "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)")
+    match client
+        .get(&audiodb_url)
+        .header(
+            "User-Agent",
+            "mfutil/0.1.1 (https://github.com/anoraktrend/music-folder-utils)",
+        )
         .send()
         .await
     {
@@ -608,18 +720,26 @@ async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sender<St
                                                     }
                                                 }
                                             } else {
-                                                tx.send("No cover art URL found in AudioDB response".to_string())
-                                                    .context("Failed to send no AudioDB URL message")?;
+                                                tx.send(
+                                                    "No cover art URL found in AudioDB response"
+                                                        .to_string(),
+                                                )
+                                                .context("Failed to send no AudioDB URL message")?;
                                                 Ok(None)
                                             }
                                         } else {
-                                            tx.send("No cover art URL found in AudioDB response".to_string())
-                                                .context("Failed to send no AudioDB URL message")?;
+                                            tx.send(
+                                                "No cover art URL found in AudioDB response"
+                                                    .to_string(),
+                                            )
+                                            .context("Failed to send no AudioDB URL message")?;
                                             Ok(None)
                                         }
                                     } else {
-                                        tx.send("No cover art found in AudioDB response".to_string())
-                                            .context("Failed to send no AudioDB cover art")?;
+                                        tx.send(
+                                            "No cover art found in AudioDB response".to_string(),
+                                        )
+                                        .context("Failed to send no AudioDB cover art")?;
                                         Ok(None)
                                     }
                                 } else {
@@ -645,8 +765,11 @@ async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sender<St
                     }
                 }
             } else {
-                tx.send(format!("AudioDB request failed (status: {})", response.status()))
-                    .context("Failed to send AudioDB request failed")?;
+                tx.send(format!(
+                    "AudioDB request failed (status: {})",
+                    response.status()
+                ))
+                .context("Failed to send AudioDB request failed")?;
                 Ok(None)
             }
         }
@@ -659,7 +782,12 @@ async fn fetch_audiodb_cover_art(artist: &str, album: &str, tx: &mpsc::Sender<St
 }
 
 /// Set enhanced metadata with MusicBrainz release ID
-fn set_enhanced_metadata(file_path: &Path, artist: &str, album: &str, release_id: &str) -> Result<()> {
+fn set_enhanced_metadata(
+    file_path: &Path,
+    artist: &str,
+    album: &str,
+    release_id: &str,
+) -> Result<()> {
     match lofty::read_from_path(file_path) {
         Ok(mut tagged_file) => {
             if let Some(tag) = tagged_file.primary_tag_mut() {
@@ -673,25 +801,32 @@ fn set_enhanced_metadata(file_path: &Path, artist: &str, album: &str, release_id
 
                 // Try to save the enhanced metadata
                 if let Err(e) = tagged_file.save_to_path(file_path, WriteOptions::default()) {
-                    warn!("Failed to save enhanced metadata for {}: {}", file_path.display(), e);
+                    warn!(
+                        "Failed to save enhanced metadata for {}: {}",
+                        file_path.display(),
+                        e
+                    );
                 }
             }
         }
         Err(e) => {
-            warn!("Could not read file for metadata enhancement: {} ({})", file_path.display(), e);
+            warn!(
+                "Could not read file for metadata enhancement: {} ({})",
+                file_path.display(),
+                e
+            );
         }
     }
 
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
     use std::io::Write;
+    use tempfile::TempDir;
 
     #[test]
     fn test_import_and_organize_files_nonexistent_import_path() -> Result<()> {
@@ -700,7 +835,12 @@ mod tests {
         let nonexistent_import = temp_dir.path().join("NonexistentImport");
 
         // Test that it fails with nonexistent import path
-        let result = import_and_organize_files(nonexistent_import.to_str().unwrap(), music_root.to_str().unwrap(), false, true);
+        let result = import_and_organize_files(
+            nonexistent_import.to_str().unwrap(),
+            music_root.to_str().unwrap(),
+            false,
+            true,
+        );
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("does not exist"));
@@ -718,10 +858,18 @@ mod tests {
         fs::File::create(&import_file)?.write_all(b"not a directory")?;
 
         // Test that it fails when import path is not a directory
-        let result = import_and_organize_files(import_file.to_str().unwrap(), music_root.to_str().unwrap(), false, true);
+        let result = import_and_organize_files(
+            import_file.to_str().unwrap(),
+            music_root.to_str().unwrap(),
+            false,
+            true,
+        );
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("is not a directory"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("is not a directory"));
 
         Ok(())
     }
@@ -736,7 +884,12 @@ mod tests {
         fs::create_dir(&empty_import)?;
 
         // Test that it succeeds with empty import directory
-        let result = import_and_organize_files(empty_import.to_str().unwrap(), music_root.to_str().unwrap(), false, true);
+        let result = import_and_organize_files(
+            empty_import.to_str().unwrap(),
+            music_root.to_str().unwrap(),
+            false,
+            true,
+        );
 
         assert!(result.is_ok());
 
@@ -754,7 +907,12 @@ mod tests {
         fs::File::create(import_dir.join("test.mp3"))?.write_all(b"audio")?;
 
         // Test dry run - should not actually import files
-        let result = import_and_organize_files(import_dir.to_str().unwrap(), music_root.to_str().unwrap(), true, true);
+        let result = import_and_organize_files(
+            import_dir.to_str().unwrap(),
+            music_root.to_str().unwrap(),
+            true,
+            true,
+        );
 
         assert!(result.is_ok());
 
@@ -769,8 +927,14 @@ mod tests {
     fn test_sanitize_filename_basic() -> Result<()> {
         // Test basic sanitization
         assert_eq!(utils::sanitize_filename("normal_name"), "normal_name");
-        assert_eq!(utils::sanitize_filename("file with spaces"), "file with spaces");
-        assert_eq!(utils::sanitize_filename("file/with\\bad:chars*"), "file_with_bad_chars_");
+        assert_eq!(
+            utils::sanitize_filename("file with spaces"),
+            "file with spaces"
+        );
+        assert_eq!(
+            utils::sanitize_filename("file/with\\bad:chars*"),
+            "file_with_bad_chars_"
+        );
 
         Ok(())
     }
@@ -780,7 +944,10 @@ mod tests {
         // Test edge cases
         assert_eq!(utils::sanitize_filename(""), "");
         assert_eq!(utils::sanitize_filename("   "), "");
-        assert_eq!(utils::sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
+        assert_eq!(
+            utils::sanitize_filename("file\x00with\x01control\x02chars"),
+            "file_with_control_chars"
+        );
 
         Ok(())
     }

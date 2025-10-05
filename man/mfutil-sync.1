@@ -1,0 +1,46 @@
+.TH MFUTIL-SYNC 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-sync \- Sync music tags with MusicBrainz and fetch cover art
+.SH SYNOPSIS
+.B mfutil sync
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+The
+.B sync
+subcommand synchronizes music metadata with MusicBrainz database and
+downloads cover artwork. It updates tags with accurate artist, album, and
+track information, and fetches high-quality cover images.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the music directory path (default: ~/Music)
+.TP
+.B \-h, \-\-help
+Print help information
+.SH FEATURES
+.TP
+Update artist and album metadata from MusicBrainz
+.TP
+Correct track titles and numbering
+.TP
+Fetch cover art from MusicBrainz
+.TP
+Batch processing with progress indication
+.SH ENVIRONMENT
+.TP
+.B MUSICBRAINZ_USER_AGENT
+Custom user agent string for MusicBrainz API requests
+.SH EXAMPLES
+.TP
+Sync metadata and art for default music directory:
+.B mfutil sync
+.TP
+Sync metadata and art for custom directory:
+.B mfutil sync --music-dir /path/to/music
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-art (1),
+.BR mfutil-all (1)
+.SH NOTES
+This command requires internet access to query MusicBrainz services.
+Large libraries may take significant time to process.

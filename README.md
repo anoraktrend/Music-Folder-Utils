@@ -6,16 +6,16 @@ A comprehensive music library management tool for Linux desktops (GNOME/KDE). Or
 
 Note: the project is implemented in Rust. Older references to a C program and `make` are outdated — use `cargo` to build and run.
 
-## ✨ Features
+## Features
 
-- **🎵 Music Library Organization** - Automatically organizes music into `Artists/Artist/Album` structure
-- **🖼️ Album Art Integration** - Extracts embedded artwork and sets as folder icons
-- **🔗 Smart Symlinks** - Creates `Albums/` and `Tracks/` directories with organized symlinks
-- **🎼 Metadata Sync** - Updates all music metadata from MusicBrainz database
-- **📁 Import Management** - Import music from external directories with metadata validation
-- **🔄 Reorganize** - Find and reorganize misplaced music files
-- **⚡ Fast Processing** - Parallel processing for large music collections
-- **🛡️ Quality Control** - Validates metadata before importing, excludes files without proper tags
+- **Music Library Organization** - Automatically organizes music into `Artists/Artist/Album` structure
+- **Album Art Integration** - Extracts embedded artwork and sets as folder icons
+- **Smart Symlinks** - Creates `Albums/` and `Tracks/` directories with organized symlinks
+- **Metadata Sync** - Updates all music metadata from MusicBrainz database
+- **Import Management** - Import music from external directories with metadata validation
+- **Reorganize** - Find and reorganize misplaced music files
+- **Fast Processing** - Parallel processing for large music collections
+- **Quality Control** - Validates metadata before importing, excludes files without proper tags
 
 ## Quick start
 
@@ -41,7 +41,7 @@ cargo run --release -- all ~/Music
 
 Most commands default to `~/Music` if no path is supplied.
 
-## ⚡ Fast Builds with Just
+## Fast Builds with Just
 
 For much faster builds, use **Just** - a modern command runner that provides significant performance improvements:
 
@@ -70,11 +70,11 @@ sudo apk add just
 
 ### Fast Build Commands
 ```bash
-just dev           # ⚡⚡⚡ Fastest development builds
-just build         # ⚡⚡ Optimized release builds
-just build-fast    # ⚡⚡⚡ Fast release builds (no LTO)
-just check         # ⚡⚡⚡ Check without building
-just test          # ⚡⚡ Run tests
+just dev           # Fastest development builds
+just build         # Optimized release builds
+just build-fast    # Fast release builds (no LTO)
+just check         # Check without building
+just test          # Run tests
 ```
 
 ### Installation Commands
@@ -101,11 +101,11 @@ just setup              # Install all build dependencies
 ### Build Performance Comparison
 | Command | Description | Speed | Use Case |
 |---------|-------------|-------|----------|
-| `cargo build` | Standard dev build | 🐌 | Basic development |
-| `just dev` | Optimized dev build | ⚡⚡⚡ | Fast development |
-| `cargo build --release` | Standard release | 🐌 | Production |
-| `just build` | Optimized release | ⚡⚡ | Best optimization |
-| `just build-fast` | Fast release | ⚡⚡⚡ | Development/CI |
+| `cargo build` | Standard dev build | Slow | Basic development |
+| `just dev` | Optimized dev build | Fast | Fast development |
+| `cargo build --release` | Standard release | Slow | Production |
+| `just build` | Optimized release | Fast | Best optimization |
+| `just build-fast` | Fast release | Fast | Development/CI |
 
 **Example workflow:**
 ```bash
@@ -167,24 +167,24 @@ cargo run --release -- tracks ~/Music
 
 ## Enhanced Features
 
-### 🎼 Comprehensive Metadata Sync
+### Comprehensive Metadata Sync
 - Updates all available metadata from MusicBrainz database
 - MusicBrainz Release IDs, artist, album, release date, and track information
 - Runs before import operations to ensure clean metadata
 
-### 📁 Smart Import with Validation
+### Smart Import with Validation
 - Import music from external directories (Downloads, Desktop, etc.)
 - **Metadata validation** - Only imports files with proper artist/album information
 - **Quality control** - Excludes files without sufficient metadata
 - **Conflict prevention** - Won't overwrite existing organized files
 
-### 🔄 Intelligent Reorganization
+### Intelligent Reorganization
 - Finds and reorganizes misplaced music files
 - Scans entire music directory for scattered audio files
 - Automatically determines correct artist/album structure
 - Preserves existing organized files
 
-### ⚡ Optimized Workflow
+### Optimized Workflow
 - **Proper ordering**: Sync → Reorganize → Import → Organize → Symlinks
 - **Parallel processing** for large music collections
 - **Progress tracking** with detailed status updates
@@ -269,32 +269,32 @@ cargo run --release -- all ~/Music
 
 ### Complete Workflow Steps:
 
-1. **🔄 Sync** - Updates all metadata from MusicBrainz database
+1. **Sync** - Updates all metadata from MusicBrainz database
    - MusicBrainz Release IDs, artist, album, release date, track information
    - Runs first to ensure clean metadata for subsequent operations
 
-2. **📁 Reorganize** - Finds and reorganizes misplaced files
+2. **Reorganize** - Finds and reorganizes misplaced files
    - Scans entire music directory for scattered audio files
    - Moves files to proper `Artists/Artist/Album` structure
    - Preserves existing organized files
 
-3. **📥 Import** - Imports external files with metadata validation
+3. **Import** - Imports external files with metadata validation
    - Imports from Downloads, Desktop, or other external directories
    - **Validates metadata** - Only imports files with proper artist/album info
    - **Quality control** - Excludes files without sufficient metadata
    - **Conflict prevention** - Won't overwrite existing files
 
-4. **🎵 Organize** - Organizes internal subfolders
+4. **Organize** - Organizes internal subfolders
    - Handles folders already within the music directory
    - Reorganizes complex nested structures
    - Ensures consistent `Artists/Artist/Album` layout
 
-5. **🔗 Album Symlinks** - Creates organized album collection
+5. **Album Symlinks** - Creates organized album collection
    - Creates `Albums/` directory with symlinks to all albums
    - Provides flat view of entire music collection
    - Optimized for media players and browsing
 
-6. **🎼 Track Symlinks** - Creates organized track collection
+6. **Track Symlinks** - Creates organized track collection
    - Creates `Tracks/` directory with symlinks to all tracks
    - Provides flat view of all individual tracks
    - Perfect for shuffle playback and track discovery
@@ -343,6 +343,28 @@ Enable backtraces:
 ```bash
 RUST_BACKTRACE=1 cargo run -- <subcommand>
 ```
+
+## Manual Pages
+
+Comprehensive manual pages are available in the `man/` directory:
+
+- `mfutil.1` - Main program manual
+- `mfutil-art.1` - Album art extraction and management
+- `mfutil-albums.1` - Album symlink creation
+- `mfutil-tracks.1` - Track symlink creation
+- `mfutil-sync.1` - MusicBrainz metadata synchronization
+- `mfutil-reorganize.1` - File reorganization
+- `mfutil-import.1` - Music import functionality
+- `mfutil-cd.1` - CD ripping (requires cd-ripping feature)
+- `mfutil-all.1` - Complete workflow automation
+
+To install manpages system-wide:
+```bash
+sudo cp man/*.1 /usr/local/share/man/man1/
+sudo mandb
+```
+
+Then view with: `man mfutil`, `man mfutil-art`, etc.
 
 ## License
 

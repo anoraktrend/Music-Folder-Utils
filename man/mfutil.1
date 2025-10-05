@@ -1,0 +1,79 @@
+.TH MFUTIL 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil \- Music Folder Utils: Organize and manage your music library
+.SH SYNOPSIS
+.B mfutil
+.RI [ OPTIONS ]
+.RI [ SUBCOMMAND ]
+.SH DESCRIPTION
+.B mfutil
+is a comprehensive music library management tool designed to help you organize,
+tag, and enhance your music collection. It provides features for extracting album
+art, creating symlinks, syncing with MusicBrainz, importing music, and more.
+.SH OPTIONS
+.TP
+.B \-h, \-\-help
+Print help information
+.TP
+.B \-V, \-\-version
+Print version information
+.SH SUBCOMMANDS
+.TP
+.B art
+Extract album art from music files and fetch from online sources
+.TP
+.B albums
+Create symlinks to album directories for easy access
+.TP
+.B tracks
+Create symlinks to individual track files
+.TP
+.B sync
+Sync music tags with MusicBrainz and fetch cover art
+.TP
+.B reorganize
+Move misplaced music files to their proper artist/album structure
+.TP
+.B import
+Import music files from external directories into your library
+.TP
+.B cd
+Import music directly from audio CDs (requires cd-ripping feature)
+.TP
+.B all
+Run all available tasks (art, icons, albums, tracks, organize)
+.SH ENVIRONMENT
+.TP
+.B MUSIC_DIR
+Default music directory path (defaults to ~/Music)
+.SH FILES
+.TP
+.I ~/.config/mfutil/
+Configuration directory for API keys and settings
+.SH EXAMPLES
+.TP
+Process album art for your music library:
+.B mfutil art
+.TP
+Create album symlinks:
+.B mfutil albums
+.TP
+Sync tags with MusicBrainz:
+.B mfutil sync
+.TP
+Import music from an external directory:
+.B mfutil import /path/to/external/music
+.TP
+Run all tasks:
+.B mfutil all
+.SH SEE ALSO
+.BR mfutil-art (1),
+.BR mfutil-albums (1),
+.BR mfutil-tracks (1),
+.BR mfutil-sync (1),
+.BR mfutil-reorganize (1),
+.BR mfutil-import (1),
+.BR mfutil-cd (1),
+.BR mfutil-all (1)
+.SH AUTHOR
+Written by the mfutil development team.

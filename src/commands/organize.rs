@@ -1,10 +1,11 @@
 use anyhow::Result;
+use mfutil::metadata;
+use mfutil::utils;
+use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
-use mfutil::utils;
-use mfutil::metadata;
 
 /// Organize music files into proper artist/album structure
 pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Result<()> {
@@ -45,7 +46,7 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
     }
 
     if !quiet {
-        info!("🔍 Scanning music directory: {}", music_path.display());
+        info!("Scanning music directory: {}", music_path.display());
     }
 
     // Find all audio files in the music directory
@@ -53,41 +54,27 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
     let files_to_move = scan_result.audio_files;
     let unknown_files_count = scan_result.files_skipped;
 
-
     if !quiet {
-        info!("✅ Found {} audio files to organize", files_to_move.len());
+        info!("Found {} audio files to organize", files_to_move.len());
     }
     if !quiet && unknown_files_count > 0 {
         info!(
-            "ℹ️  Found {} non-audio files (will be left in place)",
+            "Info: Found {} non-audio files (will be left in place)",
             unknown_files_count
         );
     }
 
     // Group files by artist and album
-    let mut file_groups: FxHashMap<(String, String), Vec<PathBuf>> = FxHashMap::default();
-    let mut total_files = 0;
-
-    for file_path in files_to_move {
-        let (artist, album) = metadata::extract_artist_album_from_file(&file_path).map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to extract metadata from '{}': {}",
-                file_path.display(),
-                e
-            )
-        })?;
-
-        // Create a clean filename for the group key
+    let processed_files: Vec<_> = files_to_move.into_par_iter().map(|file_path| {
+        let (artist, album) = metadata::extract_artist_album_from_file(&file_path)?;
         let clean_artist = utils::sanitize_filename(&artist);
         let clean_album = utils::sanitize_filename(&album);
+        Ok((file_path, clean_artist, clean_album))
+    }).collect::<Result<Vec<_>>>()?;
 
-        file_groups
-            .entry((clean_artist.clone(), clean_album.clone()))
-            .or_default()
-            .push(file_path.clone());
-
-        total_files += 1;
-
+    let mut file_groups: FxHashMap<(String, String), Vec<PathBuf>> = FxHashMap::default();
+    for (file_path, clean_artist, clean_album) in &processed_files {
+        file_groups.entry((clean_artist.clone(), clean_album.clone())).or_default().push(file_path.clone());
         if dry_run && !quiet {
             info!(
                 "Would organize: {} -> {} / {}",
@@ -97,10 +84,11 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
             );
         }
     }
+    let total_files = processed_files.len();
 
     if !quiet && dry_run {
         info!(
-            "📊 Found {} unique artist/album combinations",
+            "Found {} unique artist/album combinations",
             file_groups.len()
         );
     }
@@ -115,10 +103,10 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
 
         if dry_run {
             if !quiet {
-                info!("📁 Would create directory: {}", album_path.display());
+                info!("Would create directory: {}", album_path.display());
                 for file in files {
                     info!(
-                        "  📄 Would move: {} -> {}",
+                        "  Would move: {} -> {}",
                         file.display(),
                         album_path.display()
                     );
@@ -151,11 +139,7 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
                         )
                     })?;
                     if !quiet {
-                        info!(
-                            "✅ Moved: {} -> {}",
-                            file_path.display(),
-                            dest_path.display()
-                        );
+                        info!("Moved: {} -> {}", file_path.display(), dest_path.display());
                     }
                 }
             }
@@ -163,12 +147,12 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
     }
 
     if dry_run && !quiet {
-        info!("\n🎭 This was a dry run. No files were actually moved.");
-        info!("💡 Run without --dry-run to perform the actual organization.");
+        info!("\nThis was a dry run. No files were actually moved.");
+        info!("Run without --dry-run to perform the actual organization.");
     } else if !quiet {
-        info!("\n🎉 Music library organization completed successfully!");
+        info!("\nMusic library organization completed successfully!");
         info!(
-            "   📁 Organized {} files into {} artist/album combinations",
+            "   Organized {} files into {} artist/album combinations",
             total_files, total_groups
         );
     }
@@ -176,13 +160,11 @@ pub fn organize_music_library(music_dir: &str, dry_run: bool, quiet: bool) -> Re
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
-
+    use tempfile::TempDir;
 
     #[test]
     fn test_organize_music_library_creates_directories() -> Result<()> {
@@ -225,8 +207,14 @@ mod tests {
     fn test_sanitize_filename_basic() -> Result<()> {
         // Test basic sanitization
         assert_eq!(utils::sanitize_filename("normal_name"), "normal_name");
-        assert_eq!(utils::sanitize_filename("file with spaces"), "file with spaces");
-        assert_eq!(utils::sanitize_filename("file/with'\'bad:chars*"), "file_with_bad_chars_");
+        assert_eq!(
+            utils::sanitize_filename("file with spaces"),
+            "file with spaces"
+        );
+        assert_eq!(
+            utils::sanitize_filename("file/with'\'bad:chars*"),
+            "file_with__bad_chars_"
+        );
 
         Ok(())
     }
@@ -236,7 +224,10 @@ mod tests {
         // Test edge cases
         assert_eq!(utils::sanitize_filename(""), "");
         assert_eq!(utils::sanitize_filename("   "), "");
-        assert_eq!(utils::sanitize_filename("file\x00with\x01control\x02chars"), "file_with_control_chars");
+        assert_eq!(
+            utils::sanitize_filename("file\x00with\x01control\x02chars"),
+            "file_with_control_chars"
+        );
 
         Ok(())
     }

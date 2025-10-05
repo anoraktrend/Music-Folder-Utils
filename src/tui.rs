@@ -7,9 +7,8 @@ use crossterm::{
 };
 use std::io::{self, stdout, Write};
 use std::sync::{
-    mpsc,
     atomic::{AtomicBool, Ordering},
-    Arc,
+    mpsc, Arc,
 };
 use std::time::Duration;
 
@@ -30,8 +29,13 @@ pub fn run_tui(rx: mpsc::Receiver<String>, cancel_token: Arc<AtomicBool>) -> Res
         }
 
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
-                if (modifiers == KeyModifiers::CONTROL && code == KeyCode::Char('c')) || code == KeyCode::Char('q') {
+            if let Event::Key(KeyEvent {
+                code, modifiers, ..
+            }) = event::read()?
+            {
+                if (modifiers == KeyModifiers::CONTROL && code == KeyCode::Char('c'))
+                    || code == KeyCode::Char('q')
+                {
                     cancel_token.store(false, Ordering::SeqCst);
                     break;
                 }

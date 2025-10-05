@@ -1,0 +1,35 @@
+.TH MFUTIL-REORGANIZE 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-reorganize \- Reorganize misplaced music files
+.SH SYNOPSIS
+.B mfutil reorganize
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+The
+.B reorganize
+subcommand finds music files that are not in their proper artist/album
+directory structure and moves them to the correct location based on their metadata.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the music directory path (default: ~/Music)
+.TP
+.B \-h, \-\-help
+Print help information
+.SH OPERATION
+Scans the music directory for audio files outside the standard Artists/Artist/Album
+structure and relocates them to the appropriate directories based on embedded metadata.
+.SH EXAMPLES
+.TP
+Reorganize misplaced files in default music directory:
+.B mfutil reorganize
+.TP
+Reorganize misplaced files in custom directory:
+.B mfutil reorganize --music-dir /path/to/music
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-organize (1),
+.BR mfutil-all (1)
+.SH WARNING
+This command moves files. While it attempts to preserve data integrity,
+it's recommended to backup your music library before running.

@@ -12,8 +12,12 @@ pub fn create_album_directory(artists_path: &Path, artist: &str, album: &str) ->
     let artist_path = artists_path.join(artist);
     let album_path = artist_path.join(album);
 
-    fs::create_dir_all(&album_path)
-        .with_context(|| format!("Failed to create album directory '{}'", album_path.display()))?;
+    fs::create_dir_all(&album_path).with_context(|| {
+        format!(
+            "Failed to create album directory '{}'",
+            album_path.display()
+        )
+    })?;
 
     Ok(album_path)
 }
@@ -31,11 +35,15 @@ pub fn create_album_directory_with_dry_run(
 
     if dry_run {
         if !quiet {
-            info!("📁 Would create directory: {}", album_path.display());
+            info!("Would create directory: {}", album_path.display());
         }
     } else {
-        fs::create_dir_all(&album_path)
-            .with_context(|| format!("Failed to create album directory '{}'", album_path.display()))?;
+        fs::create_dir_all(&album_path).with_context(|| {
+            format!(
+                "Failed to create album directory '{}'",
+                album_path.display()
+            )
+        })?;
     }
 
     Ok(album_path)
@@ -62,14 +70,18 @@ pub fn move_file_to_album(
 
     if dry_run {
         if !quiet {
-            info!("  📄 Would move: {} -> {}", file_path.display(), album_path.display());
+            info!(
+                "  Would move: {} -> {}",
+                file_path.display(),
+                album_path.display()
+            );
         }
     } else {
         // Check if destination already exists
         if dest_path.exists() {
             if !quiet {
                 info!(
-                    "⚠️  File already exists at destination, skipping: {} -> {}",
+                    "Warning: File already exists at destination, skipping: {} -> {}",
                     file_path.display(),
                     dest_path.display()
                 );
@@ -78,18 +90,17 @@ pub fn move_file_to_album(
         }
 
         // Move the file
-        fs::rename(file_path, &dest_path)
-            .with_context(|| {
-                format!(
-                    "Failed to move '{}' to '{}': {}",
-                    file_path.display(),
-                    dest_path.display(),
-                    std::io::Error::last_os_error()
-                )
-            })?;
+        fs::rename(file_path, &dest_path).with_context(|| {
+            format!(
+                "Failed to move '{}' to '{}': {}",
+                file_path.display(),
+                dest_path.display(),
+                std::io::Error::last_os_error()
+            )
+        })?;
 
         if !quiet {
-            info!("✅ Moved: {} -> {}", file_path.display(), dest_path.display());
+            info!("Moved: {} -> {}", file_path.display(), dest_path.display());
         }
     }
 
@@ -117,14 +128,18 @@ pub fn copy_file_to_album(
 
     if dry_run {
         if !quiet {
-            info!("  📄 Would copy: {} -> {}", file_path.display(), album_path.display());
+            info!(
+                "  Would copy: {} -> {}",
+                file_path.display(),
+                album_path.display()
+            );
         }
     } else {
         // Check if destination already exists
         if dest_path.exists() {
             if !quiet {
                 info!(
-                    "⚠️  File already exists at destination, skipping: {} -> {}",
+                    "Warning: File already exists at destination, skipping: {} -> {}",
                     file_path.display(),
                     dest_path.display()
                 );
@@ -133,18 +148,17 @@ pub fn copy_file_to_album(
         }
 
         // Copy the file
-        fs::copy(file_path, &dest_path)
-            .with_context(|| {
-                format!(
-                    "Failed to copy '{}' to '{}': {}",
-                    file_path.display(),
-                    dest_path.display(),
-                    std::io::Error::last_os_error()
-                )
-            })?;
+        fs::copy(file_path, &dest_path).with_context(|| {
+            format!(
+                "Failed to copy '{}' to '{}': {}",
+                file_path.display(),
+                dest_path.display(),
+                std::io::Error::last_os_error()
+            )
+        })?;
 
         if !quiet {
-            info!("✅ Copied: {} -> {}", file_path.display(), dest_path.display());
+            info!("Copied: {} -> {}", file_path.display(), dest_path.display());
         }
     }
 
@@ -183,13 +197,8 @@ pub fn organize_files_by_metadata(
 
     // Process each group
     for ((artist, album), files) in file_groups {
-        let album_path = create_album_directory_with_dry_run(
-            &artists_path,
-            &artist,
-            &album,
-            dry_run,
-            quiet,
-        )?;
+        let album_path =
+            create_album_directory_with_dry_run(&artists_path, &artist, &album, dry_run, quiet)?;
 
         if dry_run {
             directories_created += 0;
@@ -238,13 +247,8 @@ pub fn copy_files_by_metadata(
 
     // Process each group
     for ((artist, album), files) in file_groups {
-        let album_path = create_album_directory_with_dry_run(
-            &artists_path,
-            &artist,
-            &album,
-            dry_run,
-            quiet,
-        )?;
+        let album_path =
+            create_album_directory_with_dry_run(&artists_path, &artist, &album, dry_run, quiet)?;
 
         if dry_run {
             directories_created += 1;

@@ -47,10 +47,24 @@ dotenvy = "0.15"
 rayon = "1.8"
 rustc-hash = "1.1.0"
 tracing-subscriber = "0.3"
-discid = "0.5.0"
-cdparanoia = "0.1.0"
-cdparanoia-sys = "0.1.0"
+tracing-appender = "0.2"
 flacenc = "0.5.0"
 serde = { version = "1.0", features = ["derive"] }
 tempfile = "3.10.0"
 crossterm = "0.29.0"
+
+[features]
+default = ["cd-ripping"]
+cd-ripping = ["discid", "cdparanoia", "cdparanoia-sys"]
+
+[dependencies.discid]
+version = "0.5.0"
+optional = true
+
+[dependencies.cdparanoia]
+version = "0.1.0"
+optional = true
+
+[dependencies.cdparanoia-sys]
+version = "0.1.0"
+optional = true

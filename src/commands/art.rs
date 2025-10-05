@@ -286,20 +286,19 @@ async fn fetch_and_save_placeholder(path: &Path, name: &str, category: &str) -> 
                             if let Some(photo) = search_result.photos.first() {
                                 let image_url = &photo.src.large;
                                 match reqwest::get(image_url).await {
-                                    Ok(image_response) => {
-                                        match image_response.bytes().await {
-                                            Ok(image_content) => {
-                                                if fs::write(&placeholder_path, &image_content).is_ok() {
-                                                    info!(
+                                    Ok(image_response) => match image_response.bytes().await {
+                                        Ok(image_content) => {
+                                            if fs::write(&placeholder_path, &image_content).is_ok()
+                                            {
+                                                info!(
                                                         "Placeholder fetched for {}: {} (searched by album artist)",
                                                         name,
                                                         path.display()
                                                     );
-                                                }
                                             }
-                                            Err(e) => error!("Failed to read image bytes: {}", e),
                                         }
-                                    }
+                                        Err(e) => error!("Failed to read image bytes: {}", e),
+                                    },
                                     Err(e) => error!("Failed to fetch image: {}", e),
                                 }
                             } else {

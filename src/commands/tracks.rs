@@ -9,7 +9,10 @@ pub fn process_single_track_symlink(track_path: &Path, music_dir: &str) -> Resul
 
     // Check if the source file exists
     if !track_path.exists() {
-        return Err(anyhow::anyhow!("Track file '{}' does not exist", track_path.display()));
+        return Err(anyhow::anyhow!(
+            "Track file '{}' does not exist",
+            track_path.display()
+        ));
     }
 
     if !tracks_path.exists() {
@@ -38,10 +41,10 @@ pub fn process_single_track_symlink(track_path: &Path, music_dir: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
     use std::io::Write;
     use std::os::unix::fs::symlink;
+    use tempfile::TempDir;
 
     #[test]
     fn test_process_single_track_symlink_valid_file() -> Result<()> {

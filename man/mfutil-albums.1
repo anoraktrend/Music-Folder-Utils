@@ -1,0 +1,38 @@
+.TH MFUTIL-ALBUMS 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-albums \- Create symlinks to album directories
+.SH SYNOPSIS
+.B mfutil albums
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+The
+.B albums
+subcommand creates symbolic links to album directories in a dedicated
+Albums folder for quick access to your music collection.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the music directory path (default: ~/Music)
+.TP
+.B \-h, \-\-help
+Print help information
+.SH OPERATION
+Creates symlinks in the Albums subdirectory pointing to artist/album directories
+that contain audio files. This provides a flat view of all albums for easy browsing.
+.SH EXAMPLES
+.TP
+Create album symlinks for default music directory:
+.B mfutil albums
+.TP
+Create album symlinks for custom directory:
+.B mfutil albums --music-dir /path/to/music
+.SH FILES
+.TP
+.I ~/Music/Albums/
+Directory containing album symlinks
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-tracks (1),
+.BR mfutil-all (1)
+.SH NOTES
+Only directories containing audio files will have symlinks created.

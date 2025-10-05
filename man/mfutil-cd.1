@@ -1,0 +1,60 @@
+.TH MFUTIL-CD 1 2025-01-01 "mfutil 0.1.1"
+.SH NAME
+mfutil-cd \- Import music from audio CDs
+.SH SYNOPSIS
+.B mfutil cd
+.RI [ OPTIONS ]
+.I DEVICE
+.I [MUSIC_DIR]
+.SH DESCRIPTION
+The
+.B cd
+subcommand imports music directly from audio CDs. It reads the CD's table of
+contents, looks up metadata from MusicBrainz, rips audio tracks to FLAC format,
+and organizes them into your music library. This feature requires the cd-ripping
+feature to be enabled during compilation.
+.SH OPTIONS
+.TP
+.BR \-m ", " \-\-music-dir " " \fIPATH\fR
+Specify the destination music directory path (default: ~/Music)
+.TP
+.B \-h, \-\-help
+Print help information
+.SH ARGUMENTS
+.TP
+.I DEVICE
+CD-ROM device path (e.g., /dev/cdrom) (required)
+.TP
+.I MUSIC_DIR
+Destination music directory (optional, defaults to ~/Music)
+.SH FEATURES
+.TP
+Read CD table of contents and calculate Disc ID
+.TP
+Lookup CD information from MusicBrainz
+.TP
+Rip audio tracks to high-quality FLAC format
+.TP
+Embed cover art in FLAC files when available
+.TP
+Apply proper metadata tags
+.SH REQUIREMENTS
+This command requires the cd-ripping feature to be enabled:
+.RS
+.B cargo build --features cd-ripping
+.RE
+.PP
+Additionally requires system CD-ROM libraries (libdiscid-dev).
+.SH EXAMPLES
+.TP
+Import CD from default device:
+.B mfutil cd /dev/cdrom
+.TP
+Import CD from specific device to custom directory:
+.B mfutil cd /dev/sr0 /path/to/music
+.SH SEE ALSO
+.BR mfutil (1),
+.BR mfutil-import (1),
+.BR mfutil-sync (1)
+.SH NOTES
+CD ripping requires appropriate hardware and system permissions.

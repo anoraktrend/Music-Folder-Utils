@@ -1,15 +1,18 @@
-use clap::Parser;
 use anyhow::{Context, Result};
+use clap::Parser;
+use dotenvy::dotenv;
 use ffmpeg_next as ffmpeg;
 use magick_rust::magick_wand_genesis;
-use dotenvy::dotenv;
-use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
-use std::thread;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
+};
+use std::thread;
 
 mod commands;
-mod utils;
 mod tui;
+mod utils;
 
 // Generic helper to run an operation with a TUI
 fn run_with_tui<I, T, F>(title: &'static str, items: I, operation: F) -> Result<()>
@@ -43,7 +46,6 @@ where
 
     Ok(())
 }
-
 
 // Helper function to run TUI for album operations
 fn run_album_tui<F>(title: &'static str, music_dir: &str, operation: F) -> Result<()>
@@ -104,7 +106,10 @@ fn run_all_sync_tags(music_dir: &str, rt: &tokio::runtime::Runtime) -> Result<()
             if !thread_cancel_token.load(Ordering::SeqCst) {
                 break;
             }
-            rt_handle.block_on(commands::sync::process_single_album_sync_tags(&album_path, tx.clone()))?;
+            rt_handle.block_on(commands::sync::process_single_album_sync_tags(
+                &album_path,
+                tx.clone(),
+            ))?;
         }
         Ok(())
     });
@@ -139,20 +144,16 @@ fn run_all_folder_icons(music_dir: &str) -> Result<()> {
 
 fn run_all_album_symlinks(music_dir: &str) -> Result<()> {
     let music_dir_owned = music_dir.to_string();
-    run_album_tui(
-        "Creating Album Symlinks",
-        music_dir,
-        move |album_path| commands::albums::process_single_album_symlink(album_path, &music_dir_owned),
-    )
+    run_album_tui("Creating Album Symlinks", music_dir, move |album_path| {
+        commands::albums::process_single_album_symlink(album_path, &music_dir_owned)
+    })
 }
 
 fn run_all_track_symlinks(music_dir: &str) -> Result<()> {
     let music_dir_owned = music_dir.to_string();
-    run_track_tui(
-        "Creating Track Symlinks",
-        music_dir,
-        move |track_path| commands::tracks::process_single_track_symlink(track_path, &music_dir_owned),
-    )
+    run_track_tui("Creating Track Symlinks", music_dir, move |track_path| {
+        commands::tracks::process_single_track_symlink(track_path, &music_dir_owned)
+    })
 }
 
 fn run_all_organize(music_dir: &str) -> Result<()> {
@@ -165,28 +166,45 @@ fn run_all_organize(music_dir: &str) -> Result<()> {
         tx.send("TOTAL_FILES:6".to_string())?;
         tx.send("Organizing Music Library".to_string())?;
 
-        if !thread_cancel_token.load(Ordering::SeqCst) { return Ok(()); }
+        if !thread_cancel_token.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         let rt = tokio::runtime::Runtime::new()?;
         run_all_sync_tags(&music_dir_owned, &rt)?;
         tx.send("COMPLETED: Synced tags with MusicBrainz".to_string())?;
 
-        if !thread_cancel_token.load(Ordering::SeqCst) { return Ok(()); }
+        if !thread_cancel_token.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         commands::reorganize::reorganize_misplaced_files(&music_dir_owned, false, true)?;
         tx.send("COMPLETED: Reorganized misplaced files".to_string())?;
 
-        if !thread_cancel_token.load(Ordering::SeqCst) { return Ok(()); }
-        commands::import::import_and_organize_files(&music_dir_owned, &music_dir_owned, false, true)?;
+        if !thread_cancel_token.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        commands::import::import_and_organize_files(
+            &music_dir_owned,
+            &music_dir_owned,
+            false,
+            true,
+        )?;
         tx.send("COMPLETED: Imported external files".to_string())?;
 
-        if !thread_cancel_token.load(Ordering::SeqCst) { return Ok(()); }
+        if !thread_cancel_token.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         commands::organize::organize_music_library(&music_dir_owned, false, true)?;
         tx.send("COMPLETED: Organized files by metadata".to_string())?;
 
-        if !thread_cancel_token.load(Ordering::SeqCst) { return Ok(()); }
+        if !thread_cancel_token.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         run_all_album_symlinks(&music_dir_owned)?;
         tx.send("COMPLETED: Created album symlinks".to_string())?;
 
-        if !thread_cancel_token.load(Ordering::SeqCst) { return Ok(()); }
+        if !thread_cancel_token.load(Ordering::SeqCst) {
+            return Ok(());
+        }
         run_all_track_symlinks(&music_dir_owned)?;
         tx.send("COMPLETED: Created track symlinks".to_string())?;
 
@@ -212,40 +230,34 @@ enum Commands {
     /// Extract album art
     Art {
         /// Music directory
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
     },
     /// Create album symlinks
     Albums {
         /// Music directory
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
     },
     /// Create track symlinks
     Tracks {
         /// Music directory
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
     },
     /// Sync music tags with MusicBrainz and fetch cover art
     SyncWithArt {
         /// Music directory to sync
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
     },
     /// Reorganize misplaced files to their proper artist/album structure
     Reorganize {
         /// Music directory
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
     },
     /// Import music files from an external directory into the music library
     Import {
         /// Path to the directory containing files to import
         import_path: String,
         /// Music directory to import into
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
         /// Perform a dry run without actually importing files
         #[arg(long)]
         dry_run: bool,
@@ -255,8 +267,7 @@ enum Commands {
         /// Path to the directory containing files to import
         import_path: String,
         /// Music directory to import into
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
         /// Perform a dry run without actually importing files
         #[arg(long)]
         dry_run: bool,
@@ -266,14 +277,12 @@ enum Commands {
         /// CD device path (e.g., /dev/cdrom)
         device: String,
         /// Music directory
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
     },
     /// Run all tasks (art, icons, albums, tracks)
     All {
         /// Music directory
-        #[arg(default_value = "~/Music")]
-        music_dir: String,
+        music_dir: Option<String>,
         /// Comma-separated list of subcommands to skip when running `all` (examples: sync,art,albums,tracks,organize,reorganize,import)
         #[arg(long, value_delimiter = ',')]
         skip: Vec<String>,
@@ -283,6 +292,18 @@ enum Commands {
 fn main() -> Result<()> {
     // Load environment variables from a .env file if present
     dotenv().ok();
+
+    // Set up logging to $XDG_STATE_HOME/mfutils.log
+    let state_home = std::env::var("XDG_STATE_HOME")
+        .unwrap_or_else(|_| format!("{}/.local/state", std::env::var("HOME").unwrap()));
+    let log_file = Path::new(&state_home).join("mfutils.log");
+    std::fs::create_dir_all(log_file.parent().unwrap())?;
+    let file_appender = tracing_appender::rolling::never(&state_home, "mfutils.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking)
+        .init();
+
     ffmpeg::init().context("Failed to initialize ffmpeg")?;
     magick_wand_genesis();
     let cli = Cli::parse();
@@ -291,11 +312,19 @@ fn main() -> Result<()> {
     let command_to_execute = cli.command.clone();
     match command_to_execute {
         Commands::Art { music_dir } => {
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
             // Handle artist images first
-            commands::art::extract_artist_art(&music_dir)
-                .context(format!("Failed to extract artist art for music directory: {}", music_dir))?;
-            rt.handle().block_on(commands::art::fetch_placeholders(&music_dir))
-                .context(format!("Failed to fetch placeholders for music directory: {}", music_dir))?;
+            commands::art::extract_artist_art(&music_dir).context(format!(
+                "Failed to extract artist art for music directory: {}",
+                music_dir
+            ))?;
+            rt.handle()
+                .block_on(commands::art::fetch_placeholders(&music_dir))
+                .context(format!(
+                    "Failed to fetch placeholders for music directory: {}",
+                    music_dir
+                ))?;
 
             // Set folder icons
             run_folder_tui(
@@ -303,7 +332,10 @@ fn main() -> Result<()> {
                 &music_dir,
                 commands::art::set_folder_icons_callback,
             )
-            .context(format!("Failed to set folder icons for music directory: {}", music_dir))?;
+            .context(format!(
+                "Failed to set folder icons for music directory: {}",
+                music_dir
+            ))?;
 
             // Extract album art
             run_album_tui(
@@ -311,38 +343,72 @@ fn main() -> Result<()> {
                 &music_dir,
                 commands::art::process_single_album_art,
             )
-            .context(format!("Failed to extract album art for music directory: {}", music_dir))?;
+            .context(format!(
+                "Failed to extract album art for music directory: {}",
+                music_dir
+            ))?;
         }
         Commands::Albums { music_dir } => {
-            let music_dir_owned = music_dir.to_string();
-            run_album_tui(
-                "Creating Album Symlinks",
-                &music_dir,
-                move |album_path| commands::albums::process_single_album_symlink(album_path, &music_dir_owned),
-            )
-            .context(format!("Failed to create album symlinks for music directory: {}", music_dir))?;
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
+            let music_dir_owned = music_dir.clone();
+            run_album_tui("Creating Album Symlinks", &music_dir, move |album_path| {
+                commands::albums::process_single_album_symlink(album_path, &music_dir_owned)
+            })
+            .context(format!(
+                "Failed to create album symlinks for music directory: {}",
+                music_dir
+            ))?;
         }
         Commands::Tracks { music_dir } => {
-            let music_dir_owned = music_dir.to_string();
-            run_track_tui(
-                "Creating Track Symlinks",
-                &music_dir,
-                move |track_path| commands::tracks::process_single_track_symlink(track_path, &music_dir_owned),
-            )
-            .context(format!("Failed to create track symlinks for music directory: {}", music_dir))?;
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
+            let music_dir_owned = music_dir.clone();
+            run_track_tui("Creating Track Symlinks", &music_dir, move |track_path| {
+                commands::tracks::process_single_track_symlink(track_path, &music_dir_owned)
+            })
+            .context(format!(
+                "Failed to create track symlinks for music directory: {}",
+                music_dir
+            ))?;
         }
         Commands::SyncWithArt { music_dir } => {
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
             run_all_sync_tags(&music_dir, &rt)?;
         }
         Commands::Reorganize { music_dir } => {
-            commands::reorganize::reorganize_misplaced_files(&music_dir, false, false)
-                .context(format!("Failed to reorganize misplaced files in music directory: {}", music_dir))?;
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
+            commands::reorganize::reorganize_misplaced_files(&music_dir, false, false).context(
+                format!(
+                    "Failed to reorganize misplaced files in music directory: {}",
+                    music_dir
+                ),
+            )?;
         }
-        Commands::Import { import_path, music_dir, dry_run } => {
+        Commands::Import {
+            import_path,
+            music_dir,
+            dry_run,
+        } => {
+            let import_path = shellexpand::tilde(&import_path).into_owned();
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
             commands::import::import_and_organize_files(&import_path, &music_dir, dry_run, false)
-                .context(format!("Failed to import files from {} to music directory: {}", import_path, music_dir))?;
+                .context(format!(
+                "Failed to import files from {} to music directory: {}",
+                import_path, music_dir
+            ))?;
         }
-        Commands::ImportEnhanced { import_path, music_dir, dry_run } => {
+        Commands::ImportEnhanced {
+            import_path,
+            music_dir,
+            dry_run,
+        } => {
+            let import_path = shellexpand::tilde(&import_path).into_owned();
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
             let cancel_token = Arc::new(AtomicBool::new(true));
             let (tx, rx) = mpsc::channel();
             let rt_handle = rt.handle().clone();
@@ -350,14 +416,22 @@ fn main() -> Result<()> {
             let import_path_clone = import_path.clone();
             let music_dir_clone = music_dir.clone();
             let handle = thread::spawn(move || -> Result<()> {
-                rt_handle.block_on(commands::import::import_and_organize_files_with_musicbrainz(
-                    &import_path_clone, &music_dir_clone, dry_run, false, tx
-                ))
+                rt_handle.block_on(
+                    commands::import::import_and_organize_files_with_musicbrainz(
+                        &import_path_clone,
+                        &music_dir_clone,
+                        dry_run,
+                        false,
+                        tx,
+                    ),
+                )
             });
             tui::run_tui(rx, cancel_token).map_err(anyhow::Error::from)?;
             handle.join().unwrap()?;
         }
         Commands::Cd { device, music_dir } => {
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
             let cancel_token = Arc::new(AtomicBool::new(true));
             let (tx, rx) = mpsc::channel();
             let rt_handle = rt.handle().clone();
@@ -371,6 +445,8 @@ fn main() -> Result<()> {
             handle.join().unwrap()?;
         }
         Commands::All { music_dir, skip } => {
+            let music_dir = music_dir.unwrap_or_else(utils::get_default_music_dir);
+            let music_dir = shellexpand::tilde(&music_dir).into_owned();
             use std::collections::HashSet;
             let skip_set: HashSet<String> = skip.into_iter().map(|s| s.to_lowercase()).collect();
 

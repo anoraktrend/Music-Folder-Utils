@@ -13,9 +13,7 @@ pub enum ProgressMessage {
         files_skipped: usize,
     },
     /// Total file count update
-    TotalFiles {
-        count: usize,
-    },
+    TotalFiles { count: usize },
     /// File grouping completion
     GroupingComplete {
         audio_files_count: usize,
@@ -28,10 +26,7 @@ pub enum ProgressMessage {
         success: bool,
     },
     /// Album processing start
-    ProcessingGroup {
-        artist: String,
-        album: String,
-    },
+    ProcessingGroup { artist: String, album: String },
     /// Album processing completion
     AlbumProcessingComplete {
         artist: String,
@@ -39,25 +34,22 @@ pub enum ProgressMessage {
         files_processed: usize,
     },
     /// Album skipped due to no MusicBrainz match
-    AlbumSkipped {
-        artist: String,
-        album: String,
-    },
+    AlbumSkipped { artist: String, album: String },
     /// Final completion message
-    FinalComplete {
-        folder_name: String,
-    },
+    FinalComplete { folder_name: String },
     /// Custom message
-    Custom {
-        message: String,
-    },
+    Custom { message: String },
 }
 
 impl ProgressMessage {
     /// Format the message for TUI display
     pub fn format(&self) -> String {
         match self {
-            ProgressMessage::ScanComplete { files_scanned, audio_files_found, files_skipped } => {
+            ProgressMessage::ScanComplete {
+                files_scanned,
+                audio_files_found,
+                files_skipped,
+            } => {
                 format!(
                     "COMPLETED: Scanned {} files ({} audio files found, {} skipped)",
                     files_scanned, audio_files_found, files_skipped
@@ -66,37 +58,52 @@ impl ProgressMessage {
             ProgressMessage::TotalFiles { count } => {
                 format!("TOTAL_FILES:{}", count)
             }
-            ProgressMessage::GroupingComplete { audio_files_count, album_groups_count } => {
+            ProgressMessage::GroupingComplete {
+                audio_files_count,
+                album_groups_count,
+            } => {
                 format!(
                     "COMPLETED: Grouped {} audio files into {} album groups",
                     audio_files_count, album_groups_count
                 )
             }
-            ProgressMessage::MusicBrainzSearchComplete { artist, album, success } => {
+            ProgressMessage::MusicBrainzSearchComplete {
+                artist,
+                album,
+                success,
+            } => {
                 if *success {
                     format!("COMPLETED: MusicBrainz search for {} - {}", artist, album)
                 } else {
-                    format!("COMPLETED: MusicBrainz search for {} - {} (failed)", artist, album)
+                    format!(
+                        "COMPLETED: MusicBrainz search for {} - {} (failed)",
+                        artist, album
+                    )
                 }
             }
             ProgressMessage::ProcessingGroup { artist, album } => {
                 format!("Processing group: {} - {}", artist, album)
             }
-            ProgressMessage::AlbumProcessingComplete { artist, album, files_processed } => {
+            ProgressMessage::AlbumProcessingComplete {
+                artist,
+                album,
+                files_processed,
+            } => {
                 format!(
                     "COMPLETED: Finished processing {} - {} ({} files processed)",
                     artist, album, files_processed
                 )
             }
             ProgressMessage::AlbumSkipped { artist, album } => {
-                format!("COMPLETED: Skipped {} - {} (no MusicBrainz match found)", artist, album)
+                format!(
+                    "COMPLETED: Skipped {} - {} (no MusicBrainz match found)",
+                    artist, album
+                )
             }
             ProgressMessage::FinalComplete { folder_name } => {
                 format!("Successfully synchronized all files in {}", folder_name)
             }
-            ProgressMessage::Custom { message } => {
-                message.clone()
-            }
+            ProgressMessage::Custom { message } => message.clone(),
         }
     }
 }
@@ -227,7 +234,12 @@ pub fn send_final_complete(tx: &mpsc::Sender<String>, folder_name: &str) -> anyh
 }
 
 pub fn send_custom_message(tx: &mpsc::Sender<String>, message: &str) -> anyhow::Result<()> {
-    send_progress_message(tx, ProgressMessage::Custom { message: message.to_string() })
+    send_progress_message(
+        tx,
+        ProgressMessage::Custom {
+            message: message.to_string(),
+        },
+    )
 }
 
 #[cfg(test)]
