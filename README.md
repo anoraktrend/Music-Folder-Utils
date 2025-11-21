@@ -1,4 +1,8 @@
 # Music Folder Utils (mfutil)
+NOTE: I no longer use this project.
+Short version: I now use [beets](https://beets.io) for music tagging and library hygiene. 
+Long Version: Beets does almost everything MFutil did (cd ripping and artist folder images excluded) while being easy to use and fairly simple to configure. I previously avoided it because I had yet to give up on navidrome. Now i use it and it just works! No more need for weird stuff I'm no longer hosting.
+This will remain a thing until I find beets plugins that do the artist folder images and cd ripping
 
 A comprehensive music library management tool for Linux desktops (GNOME/KDE). Organizes music files, extracts album art, creates symlinks, and syncs metadata with MusicBrainz.
 
